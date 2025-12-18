@@ -3070,9 +3070,9 @@ def admin_usuario_nuevo():
     cursor.execute("""
         SELECT id, nombre, codigo, icono, color, descripcion
         FROM areas_sistema 
-        WHERE activo = 1 
+        WHERE activo = 1 AND empresa_id = %s
         ORDER BY orden, nombre
-    """)
+    """, (eid,))
     areas = cursor.fetchall()
     
     cursor.close()
