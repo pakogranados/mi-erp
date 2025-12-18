@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ERP - Panel</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0b1220; --card:#0f1a33; --soft:#17264a; --txt:#e9eefc; --muted:#b8c4e6; --brand:#4f7cff;
+      --radius:16px;
+    }
+    body{background:linear-gradient(180deg,#071021, #0b1220); color:var(--txt); min-height:100vh;}
+    .glass{background:rgba(15,26,51,.65); border:1px solid rgba(255,255,255,.08); border-radius:var(--radius); backdrop-filter: blur(10px);}
+    .sidebar{width:280px; position:fixed; top:0; left:0; height:100vh; padding:18px; overflow:auto;}
+    .content{margin-left:280px; padding:22px;}
+    .nav-link{color:var(--muted); border-radius:12px; padding:10px 12px;}
+    .nav-link.active, .nav-link:hover{background:rgba(79,124,255,.18); color:var(--txt);}
+    .kpi{padding:14px;}
+    .kpi .v{font-size:1.35rem; font-weight:800;}
+    .badge-soft{background:rgba(79,124,255,.18); color:var(--txt); border:1px solid rgba(79,124,255,.25);}
+    .btn-brand{background:var(--brand); border:none;}
+    .btn-brand:hover{filter:brightness(1.05);}
+    .table thead th{color:var(--muted); border-color:rgba(255,255,255,.08);}
+    .table td, .table th{border-color:rgba(255,255,255,.08); color:var(--txt);}
+    .form-control, .form-select{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:var(--txt);}
+    .form-control::placeholder{color:rgba(233,238,252,.55);}
+    .modal-content{background:rgba(15,26,51,.95); border:1px solid rgba(255,255,255,.10); color:var(--txt);}
+    .hr{height:1px; background:rgba(255,255,255,.10);}
+    .topbar{display:flex; gap:12px; align-items:center; justify-content:space-between;}
+    .hide{display:none !important;}
+    @media(max-width: 992px){
+      .sidebar{position:relative; width:100%; height:auto;}
+      .content{margin-left:0;}
+    }
+  </style>
+</head>
+
+<body>
+  <!-- LOGIN VIEW -->
+  <main id="view-login" class="container py-5">
+    <div class="row justify-content-center">
+      <div class="col-12 col-md-7 col-lg-5">
+        <div class="glass p-4 p-md-5">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <div class="rounded-4 d-flex align-items-center justify-content-center" style="width:52px;height:52px;background:rgba(79,124,255,.18);border:1px solid rgba(79,124,255,.25);">
+              <i class="fa-solid fa-chart-line" style="font-size:1.4rem;"></i>
+            </div>
+            <div>
+              <div class="fw-bold fs-4">ERP Contable</div>
+              <div class="text-secondary" style="color:var(--muted)!important;">Acceso seguro</div>
+            </div>
+          </div>
+
+          <form id="login-form" class="mt-4">
+            <div class="mb-3">
+              <label class="form-label">Correo</label>
+              <input class="form-control" type="email" name="email" placeholder="tu@correo.com" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Contraseña</label>
+              <input class="form-control" type="password" name="password" placeholder="••••••••" required>
+            </div>
+            <button class="btn btn-brand w-100 py-2 fw-semibold" type="submit">
+              <i class="fa-solid fa-right-to-bracket me-2"></i>Entrar
+            </button>
+            <div class="d-flex justify-content-between mt-3">
+              <a href="#" class="text-decoration-none" style="color:var(--muted);" onclick="demoFill()">Usar demo</a>
+              <a href="#" class="text-decoration-none" style="color:var(--muted);" onclick="alert('Recuperación: se conecta al backend cuando lo agregues')">¿Olvidaste tu contraseña?</a>
+            </div>
+          </form>
+
+          <div class="hr my-4"></div>
+          <div class="small" style="color:var(--muted);">
+            Preparado para: Inventarios, Compras, Ventas/POS, Contabilidad (incl. “contabilidad oculta”), IA y Reportes.
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- APP SHELL -->
+  <div id="view-app" class="hide">
+    <aside class="sidebar glass">
+      <div class="d-flex align-items-center gap-3 mb-3">
+        <div class="rounded-4 d-flex align-items-center justify-content-center" style="width:46px;height:46px;background:rgba(79,124,255,.18);border:1px solid rgba(79,124,255,.25);">
+          <i class="fa-solid fa-layer-group"></i>
+        </div>
+        <div>
+          <div class="fw-bold">ERP Contable</div>
+          <div class="small" style="color:var(--muted);">Empresa: <span id="empresa-name">Demo</span></div>
+        </div>
+      </div>
+
+      <div class="input-group mb-3">
+        <span class="input-group-text" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:var(--muted);">
+          <i class="fa-solid fa-magnifying-glass"></i>
+        </span>
+        <input id="nav-search" class="form-control" placeholder="Buscar módulo..." />
+      </div>
+
+      <nav class="d-grid gap-1" id="nav">
+        <a class="nav-link active" href="#" data-view="dashboard"><i class="fa-solid fa-gauge me-2"></i>Dashboard</a>
+        <a class="nav-link" href="#" data-view="inventarios"><i class="fa-solid fa-boxes-stacked me-2"></i>Inventarios</a>
+        <a class="nav-link" href="#" data-view="compras"><i class="fa-solid fa-cart-shopping me-2"></i>Compras</a>
+        <a class="nav-link" href="#" data-view="ventas"><i class="fa-solid fa-cash-register me-2"></i>Ventas / POS</a>
+        <a class="nav-link" href="#" data-view="contabilidad"><i class="fa-solid fa-book me-2"></i>Contabilidad</a>
+        <a class="nav-link" href="#" data-view="reportes"><i class="fa-solid fa-file-lines me-2"></i>Reportes</a>
+        <a class="nav-link" href="#" data-view="ia"><i class="fa-solid fa-brain me-2"></i>IA</a>
+        <a class="nav-link" href="#" data-view="usuarios"><i class="fa-solid fa-users-gear me-2"></i>Usuarios</a>
+        <a class="nav-link" href="#" data-view="config"><i class="fa-solid fa-gear me-2"></i>Configuración</a>
+
+        <div class="hr my-2"></div>
+        <a class="nav-link" href="#" onclick="logout()"><i class="fa-solid fa-arrow-right-from-bracket me-2"></i>Salir</a>
+      </nav>
+
+      <div class="mt-3 small" style="color:var(--muted);">
+        <span class="badge badge-soft me-1">v0.1</span>
+        <span class="badge badge-soft">Ready for Flask</span>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="topbar mb-3">
+        <div>
+          <div class="fw-bold fs-4" id="page-title">Dashboard</div>
+          <div class="small" style="color:var(--muted);" id="page-subtitle">Resumen operativo y financiero</div>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="openQuickAction()">
+            <i class="fa-solid fa-bolt me-2"></i>Acción rápida
+          </button>
+          <button class="btn btn-brand" onclick="syncNow()">
+            <i class="fa-solid fa-cloud-arrow-up me-2"></i>Sincronizar
+          </button>
+        </div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div id="view-dashboard" class="view">
+        <div class="row g-3">
+          <div class="col-12 col-md-6 col-xl-3">
+            <div class="glass kpi">
+              <div class="small" style="color:var(--muted);">Ventas hoy</div>
+              <div class="v" id="kpi-ventas">$0.00</div>
+              <div class="small" style="color:var(--muted);"><i class="fa-regular fa-clock me-1"></i>Actualiza con backend</div>
+            </div>
+          </div>
+          <div class="col-12 col-md-6 col-xl-3">
+            <div class="glass kpi">
+              <div class="small" style="color:var(--muted);">Compras mes</div>
+              <div class="v" id="kpi-compras">$0.00</div>
+              <div class="small" style="color:var(--muted);"><i class="fa-solid fa-receipt me-1"></i>Proveedores</div>
+            </div>
+          </div>
+          <div class="col-12 col-md-6 col-xl-3">
+            <div class="glass kpi">
+              <div class="small" style="color:var(--muted);">Utilidad estimada</div>
+              <div class="v" id="kpi-utilidad">$0.00</div>
+              <div class="small" style="color:var(--muted);"><i class="fa-solid fa-percent me-1"></i>Markup / costo</div>
+            </div>
+          </div>
+          <div class="col-12 col-md-6 col-xl-3">
+            <div class="glass kpi">
+              <div class="small" style="color:var(--muted);">Alertas inventario</div>
+              <div class="v" id="kpi-alertas">0</div>
+              <div class="small" style="color:var(--muted);"><i class="fa-solid fa-triangle-exclamation me-1"></i>Mínimos</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-3 mt-1">
+          <div class="col-12 col-xl-7">
+            <div class="glass p-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-semibold">Actividad reciente</div>
+                <span class="badge badge-soft">Demo</span>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm mb-0 align-middle">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th><th>Módulo</th><th>Movimiento</th><th class="text-end">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabla-actividad">
+                    <tr><td>—</td><td>—</td><td>Sin datos</td><td class="text-end">—</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="small mt-2" style="color:var(--muted);">
+                Cuando conectes Flask, esto se llena desde /api/dashboard/activity
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-xl-5">
+            <div class="glass p-3">
+              <div class="fw-semibold mb-2">Atajos</div>
+              <div class="d-grid gap-2">
+                <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="goto('ventas')">
+                  <i class="fa-solid fa-cash-register me-2"></i>Abrir POS
+                </button>
+                <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="goto('compras')">
+                  <i class="fa-solid fa-cart-shopping me-2"></i>Registrar compra
+                </button>
+                <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="goto('contabilidad')">
+                  <i class="fa-solid fa-book me-2"></i>Asiento contable
+                </button>
+                <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="goto('ia')">
+                  <i class="fa-solid fa-brain me-2"></i>Predicción de demanda (IA)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INVENTARIOS -->
+      <div id="view-inventarios" class="view hide">
+        <div class="glass p-3">
+          <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <div class="fw-semibold">Inventarios</div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-brand" onclick="openModal('modalMovimiento')"><i class="fa-solid fa-plus me-2"></i>Movimiento</button>
+              <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="alert('Export: se conecta al backend')">
+                <i class="fa-solid fa-file-export me-2"></i>Exportar
+              </button>
+            </div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-12 col-md-4">
+              <input class="form-control" placeholder="Buscar mercancía..." />
+            </div>
+            <div class="col-12 col-md-3">
+              <select class="form-select">
+                <option>Todos</option>
+                <option>Materia prima</option>
+                <option>Empaques</option>
+                <option>Producto terminado</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-2">
+              <select class="form-select">
+                <option>Orden: Stock</option>
+                <option>Orden: Nombre</option>
+                <option>Orden: Últ. mov</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-3">
+              <button class="btn btn-outline-light w-100" style="border-color:rgba(255,255,255,.20);" onclick="alert('Carga desde /api/inventarios')">
+                <i class="fa-solid fa-rotate me-2"></i>Actualizar
+              </button>
+            </div>
+          </div>
+
+          <div class="table-responsive mt-3">
+            <table class="table table-sm mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th>SKU</th><th>Nombre</th><th>Tipo</th><th class="text-end">Stock</th><th class="text-end">Mínimo</th><th class="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>—</td><td>Ejemplo</td><td><span class="badge badge-soft">MP</span></td>
+                  <td class="text-end">0</td><td class="text-end">0</td>
+                  <td class="text-end">
+                    <button class="btn btn-sm btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="openModal('modalMovimiento')"><i class="fa-solid fa-right-left"></i></button>
+                    <button class="btn btn-sm btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="alert('Editar: backend')"><i class="fa-solid fa-pen"></i></button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="small mt-2" style="color:var(--muted);">Conectar a: /api/inventarios, /api/inventarios/movimientos</div>
+        </div>
+      </div>
+
+      <!-- COMPRAS -->
+      <div id="view-compras" class="view hide">
+        <div class="glass p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="fw-semibold">Compras</div>
+            <button class="btn btn-brand" onclick="alert('Nueva compra: conecta a tu flujo actual (listado_compras/detalle_compra)')">
+              <i class="fa-solid fa-plus me-2"></i>Nueva compra
+            </button>
+          </div>
+          <div class="small mt-2" style="color:var(--muted);">
+            Recomendado: encabezado en <b>listado_compras</b> y detalle en <b>detalle_compra</b>.
+          </div>
+        </div>
+      </div>
+
+      <!-- VENTAS / POS -->
+      <div id="view-ventas" class="view hide">
+        <div class="glass p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="fw-semibold">Ventas / POS</div>
+            <span class="badge badge-soft">Responsive (tablet)</span>
+          </div>
+          <div class="mt-3">
+            <div class="row g-3">
+              <div class="col-12 col-lg-7">
+                <div class="glass p-3">
+                  <div class="fw-semibold mb-2">Productos</div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="posAdd('Ejemplo', 10)">Ejemplo $10</button>
+                    <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="posAdd('Ejemplo 2', 15)">Ejemplo 2 $15</button>
+                  </div>
+                  <div class="small mt-2" style="color:var(--muted);">Cargar botones dinámicos desde /api/mercancia y precios.</div>
+                </div>
+              </div>
+              <div class="col-12 col-lg-5">
+                <div class="glass p-3">
+                  <div class="fw-semibold mb-2">Ticket</div>
+                  <div id="pos-ticket" class="small" style="color:var(--muted);">Sin productos</div>
+                  <div class="hr my-2"></div>
+                  <div class="d-flex justify-content-between">
+                    <div>Total</div>
+                    <div class="fw-bold" id="pos-total">$0.00</div>
+                  </div>
+                  <button class="btn btn-brand w-100 mt-3" onclick="alert('Cobrar: conecta a /api/ventas')">
+                    <i class="fa-solid fa-credit-card me-2"></i>Cobrar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTABILIDAD -->
+      <div id="view-contabilidad" class="view hide">
+        <div class="glass p-3">
+          <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <div>
+              <div class="fw-semibold">Contabilidad</div>
+              <div class="small" style="color:var(--muted);">Asientos, pólizas, catálogo, y capa de “contabilidad oculta”</div>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-brand" onclick="openModal('modalAsiento')"><i class="fa-solid fa-plus me-2"></i>Nuevo asiento</button>
+              <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="alert('Catálogo: conecta a /cuentas_contables')">
+                <i class="fa-solid fa-list me-2"></i>Catálogo
+              </button>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-2">
+            <div class="col-12 col-lg-7">
+              <div class="glass p-3">
+                <div class="fw-semibold mb-2">Asientos recientes</div>
+                <div class="table-responsive">
+                  <table class="table table-sm mb-0 align-middle">
+                    <thead><tr><th>Fecha</th><th>Concepto</th><th class="text-end">Debe</th><th class="text-end">Haber</th></tr></thead>
+                    <tbody>
+                      <tr><td>—</td><td>Sin datos</td><td class="text-end">—</td><td class="text-end">—</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="small mt-2" style="color:var(--muted);">Conectar a: /api/conta/asientos</div>
+              </div>
+            </div>
+            <div class="col-12 col-lg-5">
+              <div class="glass p-3">
+                <div class="fw-semibold mb-2">Modo</div>
+                <div class="d-flex gap-2 flex-wrap">
+                  <span class="badge badge-soft">Normal</span>
+                  <span class="badge badge-soft">Oculto</span>
+                </div>
+                <div class="small mt-2" style="color:var(--muted);">
+                  Recomendación: separar “asientos visibles” y “asientos ocultos” por tipo/bitácora y permisos.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REPORTES -->
+      <div id="view-reportes" class="view hide">
+        <div class="glass p-3">
+          <div class="fw-semibold">Reportes</div>
+          <div class="row g-3 mt-2">
+            <div class="col-12 col-md-6 col-xl-4">
+              <div class="glass p-3">
+                <div class="fw-semibold"><i class="fa-solid fa-file-invoice-dollar me-2"></i>Estado de Resultados</div>
+                <div class="small mt-2" style="color:var(--muted);">Conectar a /api/reportes/er</div>
+                <button class="btn btn-outline-light mt-3 w-100" style="border-color:rgba(255,255,255,.20);" onclick="alert('Generar: backend')">Generar</button>
+              </div>
+            </div>
+            <div class="col-12 col-md-6 col-xl-4">
+              <div class="glass p-3">
+                <div class="fw-semibold"><i class="fa-solid fa-scale-balanced me-2"></i>Balance General</div>
+                <div class="small mt-2" style="color:var(--muted);">Conectar a /api/reportes/bg</div>
+                <button class="btn btn-outline-light mt-3 w-100" style="border-color:rgba(255,255,255,.20);" onclick="alert('Generar: backend')">Generar</button>
+              </div>
+            </div>
+            <div class="col-12 col-md-6 col-xl-4">
+              <div class="glass p-3">
+                <div class="fw-semibold"><i class="fa-solid fa-money-bill-trend-up me-2"></i>Flujo de Efectivo</div>
+                <div class="small mt-2" style="color:var(--muted);">Conectar a /api/reportes/fe</div>
+                <button class="btn btn-outline-light mt-3 w-100" style="border-color:rgba(255,255,255,.20);" onclick="alert('Generar: backend')">Generar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IA -->
+      <div id="view-ia" class="view hide">
+        <div class="glass p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="fw-semibold">IA</div>
+              <div class="small" style="color:var(--muted);">Asistente, predicción de demanda, alertas y recomendaciones</div>
+            </div>
+            <button class="btn btn-brand" onclick="alert('Conectar a /api/ia/ask')">
+              <i class="fa-solid fa-wand-magic-sparkles me-2"></i>Preguntar
+            </button>
+          </div>
+
+          <div class="row g-3 mt-2">
+            <div class="col-12 col-lg-7">
+              <div class="glass p-3">
+                <div class="fw-semibold mb-2">Chat (demo)</div>
+                <div id="chat-log" class="p-2 glass" style="height:220px; overflow:auto;">
+                  <div class="small" style="color:var(--muted);">Conecta a tu modelo/servicio IA cuando lo tengas listo.</div>
+                </div>
+                <div class="d-flex gap-2 mt-2">
+                  <input id="chat-input" class="form-control" placeholder="Ej. ¿Qué productos debo reabastecer esta semana?">
+                  <button class="btn btn-brand" onclick="chatSend()"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-lg-5">
+              <div class="glass p-3">
+                <div class="fw-semibold mb-2">Recomendaciones (demo)</div>
+                <ul class="small" style="color:var(--muted); margin-bottom:0;">
+                  <li>Detectar mínimos de inventario</li>
+                  <li>Sugerir compra por rotación</li>
+                  <li>Alertar variaciones de margen</li>
+                  <li>Resumir ventas por sucursal</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USUARIOS -->
+      <div id="view-usuarios" class="view hide">
+        <div class="glass p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="fw-semibold">Usuarios</div>
+            <button class="btn btn-brand" onclick="alert('Conectar a /admin/usuarios')"><i class="fa-solid fa-user-plus me-2"></i>Agregar</button>
+          </div>
+          <div class="small mt-2" style="color:var(--muted);">Roles sugeridos: admin, editor, caja, contabilidad, auditor.</div>
+        </div>
+      </div>
+
+      <!-- CONFIG -->
+      <div id="view-config" class="view hide">
+        <div class="glass p-3">
+          <div class="fw-semibold">Configuración</div>
+          <div class="row g-3 mt-2">
+            <div class="col-12 col-lg-6">
+              <div class="glass p-3">
+                <div class="fw-semibold mb-2">Empresa</div>
+                <input class="form-control mb-2" value="Demo" />
+                <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" onclick="alert('Guardar: backend')">Guardar</button>
+              </div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="glass p-3">
+                <div class="fw-semibold mb-2">API</div>
+                <div class="small" style="color:var(--muted);">Base URL</div>
+                <input id="api-base" class="form-control" value="http://127.0.0.1:5000/api" />
+                <div class="small mt-2" style="color:var(--muted);">Se usará cuando conectes Flask.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </div>
+
+  <!-- MODALS -->
+  <div class="modal fade" id="modalMovimiento" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content glass">
+        <div class="modal-header border-0">
+          <h5 class="modal-title fw-bold"><i class="fa-solid fa-right-left me-2"></i>Movimiento de inventario</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-12 col-md-5">
+              <label class="form-label">Mercancía</label>
+              <input class="form-control" placeholder="Buscar..." />
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label">Tipo</label>
+              <select class="form-select">
+                <option>Entrada</option>
+                <option>Salida</option>
+                <option>Ajuste</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label">Cantidad</label>
+              <input class="form-control" type="number" step="0.001" value="1">
+            </div>
+            <div class="col-12 col-md-2">
+              <label class="form-label">Fecha</label>
+              <input class="form-control" type="date">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Nota</label>
+              <input class="form-control" placeholder="Ej. merma, ajuste, compra, etc.">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-brand" onclick="alert('Guardar movimiento: /api/inventarios/movimientos')">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalAsiento" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content glass">
+        <div class="modal-header border-0">
+          <h5 class="modal-title fw-bold"><i class="fa-solid fa-book me-2"></i>Nuevo asiento</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-12 col-md-3">
+              <label class="form-label">Fecha</label>
+              <input class="form-control" type="date">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Concepto</label>
+              <input class="form-control" placeholder="Ej. Venta mostrador, Compra proveedor, etc.">
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">Modo</label>
+              <select class="form-select">
+                <option>Normal</option>
+                <option>Oculto</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-responsive mt-3">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Cuenta</th><th>Descripción</th><th class="text-end">Debe</th><th class="text-end">Haber</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><input class="form-control" placeholder="110-000-000"></td>
+                  <td><input class="form-control" placeholder="Caja"></td>
+                  <td><input class="form-control text-end" placeholder="0.00"></td>
+                  <td><input class="form-control text-end" placeholder="0.00"></td>
+                </tr>
+                <tr>
+                  <td><input class="form-control" placeholder="410-000-000"></td>
+                  <td><input class="form-control" placeholder="Ventas"></td>
+                  <td><input class="form-control text-end" placeholder="0.00"></td>
+                  <td><input class="form-control text-end" placeholder="0.00"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="small mt-2" style="color:var(--muted);">
+            Sugerencia backend: validar que Debe = Haber; guardar en póliza y sus partidas; si es “Oculto”, limitar permisos/visibilidad.
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button class="btn btn-outline-light" style="border-color:rgba(255,255,255,.20);" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-brand" onclick="alert('Guardar asiento: /api/conta/asientos')">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // --------- Simple SPA navigation ----------
+    const views = ["dashboard","inventarios","compras","ventas","contabilidad","reportes","ia","usuarios","config"];
+    const titleMap = {
+      dashboard:["Dashboard","Resumen operativo y financiero"],
+      inventarios:["Inventarios","Control de stock, mínimos y movimientos"],
+      compras:["Compras","Registro y consulta de compras y proveedores"],
+      ventas:["Ventas / POS","Cobro rápido y registro de ventas"],
+      contabilidad:["Contabilidad","Asientos, catálogo y reportes"],
+      reportes:["Reportes","Estados financieros y exportaciones"],
+      ia:["IA","Asistente y analítica predictiva"],
+      usuarios:["Usuarios","Roles, áreas y permisos"],
+      config:["Configuración","Empresa, API y preferencias"]
+    };
+
+    const state = { token:null, pos:[] };
+
+    function setActive(view){
+      document.querySelectorAll(".view").forEach(v => v.classList.add("hide"));
+      document.getElementById("view-"+view).classList.remove("hide");
+
+      document.querySelectorAll("#nav .nav-link").forEach(a => a.classList.remove("active"));
+      const link = document.querySelector(`#nav .nav-link[data-view="${view}"]`);
+      if(link) link.classList.add("active");
+
+      document.getElementById("page-title").textContent = titleMap[view][0];
+      document.getElementById("page-subtitle").textContent = titleMap[view][1];
+    }
+
+    function goto(view){ setActive(view); }
+
+    // --------- Login (demo) ----------
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const form = new FormData(e.target);
+        const email = (form.get("email") || "").trim().toLowerCase();
+        const password = form.get("password") || "";
+
+        const apiBase = document.getElementById("api-base")?.value?.trim() || "http://127.0.0.1:5000/api";
+
+        try {
+            const res = await fetch(`${apiBase}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password })
+            });
+
+            const j = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+            alert(j.error || "No se pudo iniciar sesión");
+            return;
+            }
+
+            // Guardar token y entrar al panel
+            state.token = j.token;
+            document.getElementById("empresa-name").textContent = j.empresa_name || "Empresa";
+            document.getElementById("view-login").classList.add("hide");
+            document.getElementById("view-app").classList.remove("hide");
+            setActive("dashboard");
+
+            // Opcional: cargar KPIs al entrar
+            if (typeof loadKpis === "function") loadKpis();
+
+        } catch (err) {
+            alert("Error de conexión con el servidor. Verifica que Flask esté corriendo.");
+        }
+    });
+
+    function logout(){
+      state.token = null;
+      document.getElementById("view-app").classList.add("hide");
+      document.getElementById("view-login").classList.remove("hide");
+    }
+
+    function demoFill(){
+      document.querySelector('[name="email"]').value = "demo@erp.com";
+      document.querySelector('[name="password"]').value = "demo";
+    }
+
+    // --------- Sidebar search ----------
+    document.getElementById("nav-search").addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      document.querySelectorAll("#nav .nav-link[data-view]").forEach(a => {
+        const show = a.textContent.toLowerCase().includes(q);
+        a.style.display = show ? "" : "none";
+      });
+    });
+
+    // --------- POS demo ----------
+    function posAdd(nombre, precio){
+      state.pos.push({nombre, precio});
+      renderTicket();
+    }
+    function renderTicket(){
+      const el = document.getElementById("pos-ticket");
+      const total = state.pos.reduce((s,i)=>s+i.precio,0);
+      document.getElementById("pos-total").textContent = "$" + total.toFixed(2);
+      if(state.pos.length===0){ el.textContent="Sin productos"; return; }
+      el.innerHTML = state.pos.map((i,idx)=>`<div class="d-flex justify-content-between">
+        <div>${idx+1}. ${i.nombre}</div><div>$${i.precio.toFixed(2)}</div></div>`).join("");
+    }
+
+    // --------- Modals ----------
+    function openModal(id){
+      const m = new bootstrap.Modal(document.getElementById(id));
+      m.show();
+    }
+
+    // --------- Quick actions / sync ----------
+    function openQuickAction(){
+      alert("Acciones rápidas: conectar a endpoints (ventas, compras, asientos, movimientos).");
+    }
+    function syncNow(){
+      alert("Sincronizar: aquí llamas a tus endpoints y refrescas KPIs.");
+    }
+
+    // Start
+    // (La app se muestra después del login)
+  </script>
+</body>
+</html>

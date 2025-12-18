@@ -232,13 +232,15 @@ def require_login(f):
 
 @app.before_request
 def cargar_contexto_empresa_usuario():
-    """Carga empresa y usuario en g.* desde la sesión"""
+    """Carga empresa, usuario y áreas en g.* desde la sesión"""
     g.usuario_id = session.get("usuario_id")
     g.empresa_id = session.get("empresa_id")
     g.usuario_nombre = session.get("username")
     g.empresa_nombre = None
     g.empresa_logo = None
     g.empresas_usuario = []
+    g.usuario_areas = []  # Lista de códigos de área: ['VENTAS', 'CAJA', etc.]
+    g.es_admin = session.get('rol') == 'admin'
     
     if g.usuario_id and g.empresa_id:
         try:
@@ -257,8 +259,28 @@ def cargar_contexto_empresa_usuario():
                 g.empresa_nombre = empresa_actual['nombre']
                 g.empresa_logo = empresa_actual.get('logo_url')
             
+            # Cargar áreas del usuario
+            cur.execute("""
+                SELECT a.codigo, a.nombre, ua.rol_area
+                FROM usuario_areas ua
+                JOIN areas_sistema a ON a.id = ua.area_id
+                WHERE ua.usuario_id = %s 
+                  AND ua.empresa_id = %s 
+                  AND ua.activo = 1
+                  AND a.activo = 1
+            """, (g.usuario_id, g.empresa_id))
+            areas = cur.fetchall()
+            g.usuario_areas = [a['codigo'] for a in areas]
+            
+            # Admin tiene acceso a todo
+            if g.es_admin:
+                g.usuario_areas = ['ADMIN', 'VENTAS', 'INVENTARIO', 'COMPRAS', 'CAJA', 
+                                   'CXC', 'CXP', 'CONTABILIDAD', 'RRHH', 'GASTOS',
+                                   'B2B_CLIENTE', 'B2B_PROVEEDOR', 'REPARTO', 
+                                   'ADMINISTRACION', 'REPORTES', 'AUDITORIA']
+            
             # Cargar lista de empresas (para selector si es admin)
-            if session.get('rol') == 'admin':
+            if g.es_admin:
                 cur.execute("""
                     SELECT id, nombre 
                     FROM empresas 
@@ -269,7 +291,7 @@ def cargar_contexto_empresa_usuario():
             
             cur.close()
             conn.close()
-            
+                
         except Exception as e:
             print(f"⚠️ Error cargando contexto empresa: {e}")
             
