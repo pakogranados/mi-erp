@@ -71,46 +71,46 @@
                         </div>
                         
                         <div class="row">
-                            {% for area in areas %}
-                            <div class="col-md-6 col-lg-4 mb-3">
-                                <div class="card h-100 area-card" id="card_{{ area.id }}">
-                                    <div class="card-body p-3">
-                                        <div class="form-check">
-                                            <input class="form-check-input area-checkbox" type="checkbox" 
-                                                   name="areas" value="{{ area.id }}" 
-                                                   id="area_{{ area.id }}"
-                                                   onchange="actualizarContador()">
-                                            <label class="form-check-label w-100 cursor-pointer" for="area_{{ area.id }}">
-                                                <div class="d-flex align-items-center mb-2">
-                                                    <div class="rounded-circle p-2 me-2" 
-                                                         style="background-color: {{ area.color or '#666' }}20;">
-                                                        <i class="{{ area.icono or 'fas fa-folder' }}" 
-                                                           style="color: {{ area.color or '#666' }}; font-size: 1.2rem;"></i>
+                            {% if areas %}
+                                {% for area in areas %}
+                                <div class="col-md-6 col-lg-4 mb-3">
+                                    <div class="card h-100 area-card" id="card_{{ area.id }}">
+                                        <div class="card-body p-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input area-checkbox" type="checkbox" 
+                                                       name="areas" value="{{ area.id }}" 
+                                                       id="area_{{ area.id }}"
+                                                       onchange="actualizarContador()">
+                                                <label class="form-check-label w-100 cursor-pointer" for="area_{{ area.id }}">
+                                                    <div class="d-flex align-items-center mb-2">
+                                                        <div class="rounded-circle p-2 me-2 bg-primary bg-opacity-10">
+                                                            <i class="fas fa-industry text-primary" style="font-size: 1.2rem;"></i>
+                                                        </div>
+                                                        <div>
+                                                            <strong>{{ area.nombre }}</strong>
+                                                        </div>
                                                     </div>
-                                                    <div>
-                                                        <strong>{{ area.nombre }}</strong>
-                                                        <br>
-                                                        <small class="text-muted">{{ area.codigo }}</small>
-                                                    </div>
-                                                </div>
-                                                {% if area.descripcion %}
-                                                <small class="text-muted d-block">{{ area.descripcion[:60] }}{% if area.descripcion|length > 60 %}...{% endif %}</small>
-                                                {% endif %}
-                                            </label>
+                                                    {% if area.descripcion %}
+                                                    <small class="text-muted d-block">{{ area.descripcion[:60] }}{% if area.descripcion|length > 60 %}...{% endif %}</small>
+                                                    {% endif %}
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                                {% endfor %}
                             {% else %}
-                            <div class="col-12">
-                                <div class="alert alert-warning">
-                                    <i class="fas fa-exclamation-triangle"></i>
-                                    No hay áreas disponibles. Ve a <a href="{{ url_for('admin_areas') }}">Áreas del Sistema</a> para crearlas.
+                                <div class="col-12">
+                                    <div class="alert alert-warning">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                        <strong>No hay áreas disponibles.</strong><br>
+                                        Primero debes crear áreas en la sección de <strong>Configuración → Áreas de Producción</strong>.
+                                    </div>
                                 </div>
-                            </div>
-                            {% endfor %}
+                            {% endif %}
                         </div>
                         
+                        {% if areas %}
                         <!-- Acciones rápidas -->
                         <div class="border-top pt-3 mt-3">
                             <button type="button" class="btn btn-outline-primary btn-sm" onclick="seleccionarTodas()">
@@ -119,10 +119,8 @@
                             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="deseleccionarTodas()">
                                 <i class="fas fa-times"></i> Quitar Todas
                             </button>
-                            <button type="button" class="btn btn-outline-info btn-sm" onclick="seleccionarBasicas()">
-                                <i class="fas fa-star"></i> Solo Caja/Ventas
-                            </button>
                         </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -184,26 +182,16 @@ function deseleccionarTodas() {
     actualizarContador();
 }
 
-function seleccionarBasicas() {
-    deseleccionarTodas();
-    // Buscar áreas VENTAS y CAJA
-    document.querySelectorAll('.area-checkbox').forEach(cb => {
-        const label = cb.closest('.form-check').querySelector('label').textContent;
-        if (label.includes('VENTAS') || label.includes('CAJA') || label.includes('Ventas') || label.includes('Caja')) {
-            cb.checked = true;
-        }
-    });
-    actualizarContador();
-}
-
 // Hacer click en card seleccione checkbox
-document.querySelectorAll('.area-card').forEach(card => {
-    card.addEventListener('click', function(e) {
-        if (e.target.type !== 'checkbox') {
-            const checkbox = this.querySelector('.area-checkbox');
-            checkbox.checked = !checkbox.checked;
-            actualizarContador();
-        }
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.area-card').forEach(card => {
+        card.addEventListener('click', function(e) {
+            if (e.target.type !== 'checkbox' && e.target.tagName !== 'LABEL') {
+                const checkbox = this.querySelector('.area-checkbox');
+                checkbox.checked = !checkbox.checked;
+                actualizarContador();
+            }
+        });
     });
 });
 </script>
