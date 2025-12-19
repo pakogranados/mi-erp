@@ -1711,7 +1711,7 @@ def admin_agregar_usuario():
         db.close()
     
     return redirect(url_for('admin_gestion_usuarios'))  # ✅ CAMBIO 5
-    
+
 @app.route('/admin/usuarios/<int:usuario_id>/editar', methods=['POST'])
 @require_login
 def admin_editar_usuario(usuario_id):
@@ -3066,7 +3066,7 @@ def admin_usuario_nuevo():
     db = conexion_db()
     cursor = db.cursor(dictionary=True)
     
-    # ✅ CORREGIDO - Obtener áreas de producción
+    # Obtener áreas disponibles
     cursor.execute("""
         SELECT id, nombre, descripcion
         FROM areas_produccion
@@ -3074,6 +3074,18 @@ def admin_usuario_nuevo():
         ORDER BY nombre
     """, (eid,))
     areas = cursor.fetchall()
+    
+    # ✅ DEBUG - IMPRIME EN LOGS
+    import sys
+    print(f"\n{'='*60}", file=sys.stderr)
+    print(f"🔍 DEBUG admin_usuario_nuevo", file=sys.stderr)
+    print(f"   Empresa ID: {eid}", file=sys.stderr)
+    print(f"   Áreas encontradas: {len(areas)}", file=sys.stderr)
+    if areas:
+        print(f"   Primera área: {areas[0]}", file=sys.stderr)
+    else:
+        print(f"   ⚠️ NINGUNA ÁREA ENCONTRADA", file=sys.stderr)
+    print(f"{'='*60}\n", file=sys.stderr)
     
     cursor.close()
     db.close()
