@@ -6008,9 +6008,9 @@ def panel_de_control():
     # Órdenes en proceso (production debe tener empresa_id)
     cur.execute("""
         SELECT COUNT(*) AS en_proceso
-        FROM production
+        FROM orden_produccion
         WHERE empresa_id = %s
-          AND UPPER(status) IN ('OPEN','IN_PROGRESS')
+        AND estado IN ('pendiente', 'en_proceso')
     """, (eid,))
     produccion = cur.fetchone() or {"en_proceso": 0}
 
