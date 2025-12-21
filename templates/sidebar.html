@@ -193,7 +193,7 @@
 <body>
 
 {# ===== VARIABLES DE CONTROL DE ACCESO ===== #}
-{% set areas = g.usuario_areas if g.usuario_areas else [] %}
+{% set usuario_areas_sidebar = g.usuario_areas if g.usuario_areas else [] %}
 {% set es_admin = g.es_admin if g.es_admin else false %}
 
     <!-- TOP BAR -->
@@ -301,7 +301,7 @@
             </li>
 
             <!-- VENTAS / CAJA -->
-            {% if es_admin or 'VENTAS' in areas or 'CAJA' in areas %}
+            {% if es_admin or 'VENTAS' in usuario_areas_sidebar or 'CAJA' in usuario_areas_sidebar %}
             <li class="nav-item">
                 <a class="nav-link parent" data-bs-toggle="collapse" href="#menuVentas" role="button">
                     <i class="fas fa-cash-register"></i>
@@ -316,7 +316,7 @@
                         <i class="fas fa-calculator"></i>
                         <span>Caja de Cobro</span>
                     </a>
-                    {% if es_admin or 'VENTAS' in areas %}
+                    {% if es_admin or 'VENTAS' in usuario_areas_sidebar %}
                     <a class="nav-link" href="{{ url_for('pt_catalogo') }}">
                         <i class="fas fa-tags"></i>
                         <span>Catálogo PT</span>
@@ -335,7 +335,7 @@
             {% endif %}
 
             <!-- INVENTARIOS -->
-            {% if es_admin or 'INVENTARIO' in areas %}
+            {% if es_admin or 'INVENTARIO' in usuario_areas_sidebar %}
             <li class="nav-item">
                 <a class="nav-link parent" data-bs-toggle="collapse" href="#menuInventarios" role="button">
                     <i class="fas fa-boxes"></i>
@@ -367,7 +367,7 @@
             {% endif %}
 
             <!-- COMPRAS -->
-            {% if es_admin or 'COMPRAS' in areas %}
+            {% if es_admin or 'COMPRAS' in usuario_areas_sidebar %}
             <li class="nav-item">
                 <a class="nav-link parent" data-bs-toggle="collapse" href="#menuCompras" role="button">
                     <i class="fas fa-shopping-cart"></i>
@@ -395,7 +395,7 @@
             {% endif %}
 
             <!-- PRODUCCIÓN -->
-            {% if es_admin or 'INVENTARIO' in areas %}
+            {% if es_admin or 'INVENTARIO' in usuario_areas_sidebar %}
             <li class="nav-item">
                 <a class="nav-link parent" data-bs-toggle="collapse" href="#menuProduccion" role="button">
                     <i class="fas fa-industry"></i>
@@ -427,7 +427,7 @@
             {% endif %}
 
             <!-- FACTURACIÓN B2B -->
-            {% if es_admin or 'B2B_CLIENTE' in areas or 'B2B_PROVEEDOR' in areas %}
+            {% if es_admin or 'B2B_CLIENTE' in usuario_areas_sidebar or 'B2B_PROVEEDOR' in usuario_areas_sidebar %}
             <li class="nav-item">
                 <a class="nav-link parent" data-bs-toggle="collapse" href="#menuB2B" role="button">
                     <i class="fas fa-exchange-alt"></i>
@@ -442,7 +442,7 @@
                         <i class="fas fa-envelope-open-text"></i>
                         <span>Invitaciones</span>
                     </a>
-                    {% if es_admin or 'B2B_CLIENTE' in areas %}
+                    {% if es_admin or 'B2B_CLIENTE' in usuario_areas_sidebar %}
                     <a class="nav-link" href="{{ url_for('ordenes_compra_b2b') }}">
                         <i class="fas fa-shopping-cart"></i>
                         <span>Órdenes de Compra</span>
@@ -456,7 +456,7 @@
                         <span>Cuentas por Pagar</span>
                     </a>
                     {% endif %}
-                    {% if es_admin or 'B2B_PROVEEDOR' in areas %}
+                    {% if es_admin or 'B2B_PROVEEDOR' in usuario_areas_sidebar %}
                     <a class="nav-link" href="{{ url_for('pedidos_recibidos_b2b') }}">
                         <i class="fas fa-clipboard-list"></i>
                         <span>Pedidos Recibidos</span>
@@ -481,7 +481,7 @@
             {% endif %}
 
             <!-- CONTABILIDAD -->
-            {% if es_admin or 'CONTABILIDAD' in areas %}
+            {% if es_admin or 'CONTABILIDAD' in usuario_areas_sidebar %}
             <li class="nav-item">
                 <a class="nav-link parent" data-bs-toggle="collapse" href="#menuContabilidad" role="button">
                     <i class="fas fa-file-invoice-dollar"></i>
