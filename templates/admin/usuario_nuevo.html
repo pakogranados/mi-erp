@@ -70,7 +70,14 @@
                             <i class="fas fa-info-circle"></i>
                             <strong>Importante:</strong> El usuario solo verá en su menú los módulos correspondientes a las áreas que selecciones aquí.
                         </div>
-                        
+                        <!-- DEBUG TEMPLATE -->
+                        <div class="alert alert-warning">
+                            <strong>DEBUG:</strong><br>
+                            areas = {{ areas }}<br>
+                            areas|length = {{ areas|length }}<br>
+                            areas existe? = {% if areas %}SÍ{% else %}NO{% endif %}
+                        </div>
+
                         <div class="row">
                             {% if areas %}
                                 {% for area in areas %}
