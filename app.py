@@ -16500,6 +16500,199 @@ def api_test_ping_secure():
     </html>
     """
 
+# ============================================================
+# ÓRDENES DE COMPRA AUTOMÁTICAS
+# ============================================================
+
+@app.route('/admin/ordenes_auto')
+@require_login
+def ordenes_auto_lista():
+    """Lista de órdenes de compra automáticas"""
+    eid = g.empresa_id
+    
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    try:
+        # Obtener órdenes
+        cursor.execute("""
+            SELECT 
+                o.id,
+                o.folio,
+                o.fecha_generacion,
+                o.tipo_orden,
+                o.estado,
+                o.subtotal,
+                o.iva,
+                o.total,
+                o.solicitado_por,
+                r.nombre as revisado_por,
+                o.fecha_revision,
+                a.nombre as aprobado_por,
+                o.fecha_aprobacion,
+                COUNT(d.id) as total_items,
+                SUM(CASE WHEN d.estado = 'completado' THEN 1 ELSE 0 END) as items_completados
+            FROM ordenes_compra_automaticas o
+            LEFT JOIN usuarios r ON r.id = o.revisado_por_usuario_id
+            LEFT JOIN usuarios a ON a.id = o.aprobado_por_usuario_id
+            LEFT JOIN ordenes_compra_automaticas_detalle d ON d.orden_id = o.id
+            WHERE o.empresa_id = %s
+            GROUP BY o.id
+            ORDER BY o.fecha_generacion DESC
+            LIMIT 50
+        """, (eid,))
+        
+        ordenes = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        db.close()
+    
+    return render_template('ordenes_auto/lista.html', ordenes=ordenes)
+
+
+@app.route('/admin/ordenes_auto/<int:orden_id>')
+@require_login
+def ordenes_auto_detalle(orden_id):
+    """Ver detalle de una orden automática"""
+    eid = g.empresa_id
+    uid = g.usuario_id
+    
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    try:
+        # Obtener orden
+        cursor.execute("""
+            SELECT o.*,
+                   r.nombre as revisado_por_nombre,
+                   a.nombre as aprobado_por_nombre
+            FROM ordenes_compra_automaticas o
+            LEFT JOIN usuarios r ON r.id = o.revisado_por_usuario_id
+            LEFT JOIN usuarios a ON a.id = o.aprobado_por_usuario_id
+            WHERE o.id = %s AND o.empresa_id = %s
+        """, (orden_id, eid))
+        
+        orden = cursor.fetchone()
+        
+        if not orden:
+            flash('Orden no encontrada', 'danger')
+            return redirect(url_for('ordenes_auto_lista'))
+        
+        # Obtener items
+        cursor.execute("""
+            SELECT 
+                d.*,
+                m.nombre as mercancia_nombre,
+                pb.nombre as producto_base_nombre
+            FROM ordenes_compra_automaticas_detalle d
+            LEFT JOIN mercancia m ON m.id = d.mercancia_id
+            LEFT JOIN producto_base pb ON pb.id = d.producto_base_id
+            WHERE d.orden_id = %s
+            ORDER BY d.dias_pendiente DESC, d.criterio
+        """, (orden_id,))
+        
+        items = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        db.close()
+    
+    return render_template('ordenes_auto/detalle.html', orden=orden, items=items)
+
+
+@app.route('/admin/ordenes_auto/<int:orden_id>/revisar', methods=['POST'])
+@require_login
+def ordenes_auto_revisar(orden_id):
+    """Jefe de compras revisa la orden"""
+    eid = g.empresa_id
+    uid = g.usuario_id
+    
+    accion = request.form.get('accion')  # 'aprobar' o 'rechazar'
+    notas = request.form.get('notas', '')
+    
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    try:
+        # Verificar que la orden existe y está pendiente
+        cursor.execute("""
+            SELECT id, estado
+            FROM ordenes_compra_automaticas
+            WHERE id = %s AND empresa_id = %s AND estado = 'pendiente_revision'
+        """, (orden_id, eid))
+        
+        orden = cursor.fetchone()
+        
+        if not orden:
+            flash('Orden no encontrada o ya fue procesada', 'warning')
+            return redirect(url_for('ordenes_auto_lista'))
+        
+        if accion == 'aprobar':
+            cursor.execute("""
+                UPDATE ordenes_compra_automaticas
+                SET estado = 'aprobada_jefe',
+                    aprobado_por_usuario_id = %s,
+                    fecha_aprobacion = NOW(),
+                    notas_revision = %s
+                WHERE id = %s
+            """, (uid, notas, orden_id))
+            
+            # Actualizar items a estado aprobado
+            cursor.execute("""
+                UPDATE ordenes_compra_automaticas_detalle
+                SET estado = 'aprobado',
+                    cantidad_aprobada = cantidad_solicitada
+                WHERE orden_id = %s
+            """, (orden_id,))
+            
+            flash('✅ Orden aprobada correctamente', 'success')
+            
+        elif accion == 'rechazar':
+            cursor.execute("""
+                UPDATE ordenes_compra_automaticas
+                SET estado = 'rechazada',
+                    revisado_por_usuario_id = %s,
+                    fecha_revision = NOW(),
+                    notas_rechazo = %s
+                WHERE id = %s
+            """, (uid, notas, orden_id))
+            
+            flash('Orden rechazada', 'info')
+        
+        db.commit()
+        
+    except Exception as e:
+        db.rollback()
+        flash(f'Error: {e}', 'danger')
+    finally:
+        cursor.close()
+        db.close()
+    
+    return redirect(url_for('ordenes_auto_detalle', orden_id=orden_id))
+
+
+@app.route('/admin/ordenes_auto/generar_manual', methods=['POST'])
+@require_login
+def ordenes_auto_generar_manual():
+    """Generar orden automática manualmente (no esperar al CRON)"""
+    from orden_compra_auto import crear_orden_compra_automatica
+    
+    eid = g.empresa_id
+    
+    try:
+        orden_id = crear_orden_compra_automatica(eid)
+        
+        if orden_id:
+            flash(f'✅ Orden automática generada con éxito', 'success')
+            return redirect(url_for('ordenes_auto_detalle', orden_id=orden_id))
+        else:
+            flash('No hay necesidades de compra en este momento', 'info')
+            return redirect(url_for('ordenes_auto_lista'))
+            
+    except Exception as e:
+        flash(f'Error al generar orden: {e}', 'danger')
+        return redirect(url_for('ordenes_auto_lista'))
 
 
 # ===== INICIAR SERVIDOR =====

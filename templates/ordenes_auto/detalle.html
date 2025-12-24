@@ -1,0 +1,252 @@
+{% extends "sidebar.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2><i class="fas fa-file-invoice"></i> {{ orden.folio }}</h2>
+            <p class="text-muted mb-0">Orden de Compra Automática</p>
+        </div>
+        <div>
+            <a href="{{ url_for('ordenes_auto_lista') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Información de la Orden -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0"><i class="fas fa-info-circle"></i> Información General</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th>Folio:</th>
+                            <td><strong>{{ orden.folio }}</strong></td>
+                        </tr>
+                        <tr>
+                            <th>Fecha:</th>
+                            <td>{{ orden.fecha_generacion.strftime('%d/%m/%Y %H:%M') }}</td>
+                        </tr>
+                        <tr>
+                            <th>Tipo:</th>
+                            <td>
+                                {% if orden.tipo_orden == 'automatica' %}
+                                <span class="badge bg-primary">Automática</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Manual</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Estado:</th>
+                            <td>
+                                {% if orden.estado == 'pendiente_revision' %}
+                                <span class="badge bg-warning text-dark">Pendiente Revisión</span>
+                                {% elif orden.estado == 'aprobada_jefe' %}
+                                <span class="badge bg-info">Aprobada por Jefe</span>
+                                {% elif orden.estado == 'en_proceso' %}
+                                <span class="badge bg-primary">En Proceso</span>
+                                {% elif orden.estado == 'completada' %}
+                                <span class="badge bg-success">Completada</span>
+                                {% elif orden.estado == 'rechazada' %}
+                                <span class="badge bg-danger">Rechazada</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Generado por:</th>
+                            <td>{{ orden.solicitado_por }}</td>
+                        </tr>
+                        {% if orden.revisado_por_nombre %}
+                        <tr>
+                            <th>Revisado por:</th>
+                            <td>
+                                {{ orden.revisado_por_nombre }}
+                                <br><small class="text-muted">{{ orden.fecha_revision.strftime('%d/%m/%Y %H:%M') }}</small>
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% if orden.aprobado_por_nombre %}
+                        <tr>
+                            <th>Aprobado por:</th>
+                            <td>
+                                {{ orden.aprobado_por_nombre }}
+                                <br><small class="text-muted">{{ orden.fecha_aprobacion.strftime('%d/%m/%Y %H:%M') }}</small>
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                </div>
+            </div>
+
+            <!-- Totales -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-calculator"></i> Totales</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tr>
+                            <th>Subtotal:</th>
+                            <td class="text-end">${{ "{:,.2f}".format(orden.subtotal or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <th>IVA (16%):</th>
+                            <td class="text-end">${{ "{:,.2f}".format(orden.iva or 0) }}</td>
+                        </tr>
+                        <tr class="table-success">
+                            <th><strong>TOTAL:</strong></th>
+                            <td class="text-end"><strong>${{ "{:,.2f}".format(orden.total or 0) }}</strong></td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Acciones de Aprobación -->
+            {% if orden.estado == 'pendiente_revision' %}
+            <div class="card shadow-sm border-warning">
+                <div class="card-header bg-warning">
+                    <h5 class="mb-0"><i class="fas fa-check-circle"></i> Revisar Orden</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('ordenes_auto_revisar', orden_id=orden.id) }}">
+                        <div class="mb-3">
+                            <label class="form-label">Notas / Observaciones</label>
+                            <textarea name="notas" class="form-control" rows="3" placeholder="Comentarios opcionales..."></textarea>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" name="accion" value="aprobar" class="btn btn-success">
+                                <i class="fas fa-check"></i> Aprobar Orden
+                            </button>
+                            <button type="submit" name="accion" value="rechazar" class="btn btn-danger">
+                                <i class="fas fa-times"></i> Rechazar Orden
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if orden.notas_revision %}
+            <div class="alert alert-info mt-3">
+                <strong>Notas de Revisión:</strong><br>
+                {{ orden.notas_revision }}
+            </div>
+            {% endif %}
+
+            {% if orden.notas_rechazo %}
+            <div class="alert alert-danger mt-3">
+                <strong>Motivo de Rechazo:</strong><br>
+                {{ orden.notas_rechazo }}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Items de la Orden -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-boxes"></i> Mercancías a Comprar ({{ items|length }} items)</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 50px;">#</th>
+                                    <th>Mercancía</th>
+                                    <th>Criterio</th>
+                                    <th class="text-center">Stock Actual</th>
+                                    <th class="text-center">Mín/Máx</th>
+                                    <th class="text-center">Cant. Solicitada</th>
+                                    <th class="text-center">Días Pendiente</th>
+                                    <th class="text-end">Precio Est.</th>
+                                    <th class="text-end">Importe</th>
+                                    <th class="text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in items %}
+                                <tr {% if item.dias_pendiente > 7 %}class="table-warning"{% endif %}>
+                                    <td>{{ loop.index }}</td>
+                                    <td>
+                                        <strong>{{ item.descripcion }}</strong>
+                                        {% if item.producto_base_nombre %}
+                                        <br><small class="text-muted">Base: {{ item.producto_base_nombre }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if item.criterio == 'bajo_minimo' %}
+                                        <span class="badge bg-danger">
+                                            <i class="fas fa-exclamation-triangle"></i> Bajo Mínimo
+                                        </span>
+                                        {% elif item.criterio == 'punto_reorden' %}
+                                        <span class="badge bg-warning text-dark">
+                                            <i class="fas fa-chart-line"></i> Punto Reorden
+                                        </span>
+                                        {% elif item.criterio == 'proyeccion_produccion' %}
+                                        <span class="badge bg-info">
+                                            <i class="fas fa-industry"></i> Proyección
+                                        </span>
+                                        {% elif item.criterio == 'solicitud_especial' %}
+                                        <span class="badge bg-primary">
+                                            <i class="fas fa-star"></i> Especial
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge bg-secondary">{{ "{:,.2f}".format(item.stock_actual or 0) }}</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <small class="text-muted">
+                                            {{ "{:,.0f}".format(item.stock_minimo or 0) }} / 
+                                            {{ "{:,.0f}".format(item.stock_maximo or 0) }}
+                                        </small>
+                                    </td>
+                                    <td class="text-center">
+                                        <strong>{{ "{:,.2f}".format(item.cantidad_solicitada) }}</strong>
+                                    </td>
+                                    <td class="text-center">
+                                        {% if item.dias_pendiente > 7 %}
+                                        <span class="badge bg-danger">{{ item.dias_pendiente }} días</span>
+                                        {% elif item.dias_pendiente > 3 %}
+                                        <span class="badge bg-warning text-dark">{{ item.dias_pendiente }} días</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">{{ item.dias_pendiente }} días</span>
+                                        {% endif %}
+                                        <br><small class="text-muted">Desde: {{ item.fecha_primera_solicitud.strftime('%d/%m') }}</small>
+                                    </td>
+                                    <td class="text-end">${{ "{:,.2f}".format(item.precio_estimado or 0) }}</td>
+                                    <td class="text-end"><strong>${{ "{:,.2f}".format(item.importe or 0) }}</strong></td>
+                                    <td class="text-center">
+                                        {% if item.estado == 'pendiente' %}
+                                        <span class="badge bg-secondary">Pendiente</span>
+                                        {% elif item.estado == 'aprobado' %}
+                                        <span class="badge bg-info">Aprobado</span>
+                                        {% elif item.estado == 'en_cotizacion' %}
+                                        <span class="badge bg-warning text-dark">Cotización</span>
+                                        {% elif item.estado == 'pedido' %}
+                                        <span class="badge bg-primary">Pedido</span>
+                                        {% elif item.estado == 'completado' %}
+                                        <span class="badge bg-success">Completado</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.table-warning { background-color: #fff3cd !important; }
+</style>
+{% endblock %}
