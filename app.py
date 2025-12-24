@@ -12334,7 +12334,6 @@ def mercancia():
             row = cursor.fetchone()
             cuenta_padre_id = row["id"] if row else None
 
-            # INSERT CON EMPRESA_ID
             # Obtener mínimo de existencia
             minimo_existencia = request.form.get('minimo_existencia', '0').strip()
             try:
@@ -12342,13 +12341,23 @@ def mercancia():
             except:
                 minimo_existencia = Decimal('0')
 
+            # Obtener máximo de existencia
+            maximo_existencia = request.form.get('maximo_existencia', '0').strip()
+            try:
+                maximo_existencia = Decimal(maximo_existencia) if maximo_existencia else Decimal('0')
+            except:
+                maximo_existencia = Decimal('0')
+
+            # INSERT CON EMPRESA_ID
             cursor.execute("""
                 INSERT INTO mercancia
                     (empresa_id, nombre, tipo, unidad_id, cont_neto, iva, ieps,
-                    cuenta_id, subcuenta_id, catalogo_id, producto_base_id, minimo_existencia)
-                VALUES (%s, %s, 'MP', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     cuenta_id, subcuenta_id, catalogo_id, producto_base_id, 
+                     minimo_existencia, maximo_existencia)
+                VALUES (%s, %s, 'MP', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (eid, nombre, unidad_id, str(cont_neto), iva, ieps,
-                cuenta_padre_id, None, catalogo_id, producto_base_id, str(minimo_existencia)))
+                  cuenta_padre_id, None, catalogo_id, producto_base_id, 
+                  str(minimo_existencia), str(maximo_existencia)))
             mid = cursor.lastrowid
 
             cursor.execute("""
@@ -12386,7 +12395,7 @@ def mercancia():
             SELECT p.id, p.nombre, p.cont_neto,
                    u.nombre AS unidad, p.iva, p.ieps,
                    p.catalogo_id, p.producto_base_id,
-                   p.minimo_existencia,
+                   p.minimo_existencia, p.maximo_existencia,
                    sc.id AS subcuenta_id,
                    CONCAT(sc.codigo, ' - ', sc.nombre) AS cuenta_asignada
             FROM mercancia p
@@ -12490,12 +12499,19 @@ def actualizar_mercancia(id):
             conn.commit()
             producto_base_id = cur.lastrowid
 
-       # Obtener mínimo de existencia
+        # Obtener mínimo de existencia
         minimo_existencia = request.form.get('minimo_existencia', '0').strip()
         try:
             minimo_existencia = Decimal(minimo_existencia) if minimo_existencia else Decimal('0')
         except:
-            minimo_existencia = Decimal('0')     
+            minimo_existencia = Decimal('0')
+
+        # Obtener máximo de existencia
+        maximo_existencia = request.form.get('maximo_existencia', '0').strip()
+        try:
+            maximo_existencia = Decimal(maximo_existencia) if maximo_existencia else Decimal('0')
+        except:
+            maximo_existencia = Decimal('0')
 
         # UPDATE VALIDANDO EMPRESA
         cur.execute("""
@@ -12509,10 +12525,12 @@ def actualizar_mercancia(id):
                 cuenta_id=COALESCE(%s, cuenta_id),
                 catalogo_id=%s,
                 producto_base_id=%s,
-                minimo_existencia=%s
+                minimo_existencia=%s,
+                maximo_existencia=%s
             WHERE id=%s AND empresa_id=%s
         """, (nombre, str(cont_neto), unidad_id, iva, ieps, subcuenta_id,
-            cuenta_padre_id, catalogo_id, producto_base_id, str(minimo_existencia), id, eid))
+              cuenta_padre_id, catalogo_id, producto_base_id, 
+              str(minimo_existencia), str(maximo_existencia), id, eid))
 
         cur.execute("""
             INSERT IGNORE INTO inventario
