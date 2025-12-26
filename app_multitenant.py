@@ -3,7 +3,7 @@
     Sistema modular con onboarding, autenticación y administración por contratante
 """
 
-from flask import Flask, g, session
+from flask import Flask, g, session, redirect, url_for
 from flask_mysqldb import MySQL
 import sys
 import os
@@ -141,6 +141,13 @@ def inject_user():
         empresas_usuario=g.get('empresas_usuario', []),
         usuario_areas=g.get('usuario_areas', [])
     )
+
+@app.route('/')
+def home():
+    """Ruta raíz que redirige al login o dashboard"""
+    if 'user_id' in session:
+        return redirect(url_for('dashboard.index'))
+    return redirect(url_for('auth.login'))
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
