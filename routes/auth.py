@@ -2,10 +2,12 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from werkzeug.security import generate_password_hash, check_password_hash
 import json
 
+def get_mysql():
+    """Importación lazy para evitar circular imports"""
+    from app_multitenant import mysql
+    return mysql
+
 bp = Blueprint('auth', __name__)
-
-
-
 
 @bp.route('/')
 def index():
@@ -45,6 +47,7 @@ def login():
             session['contratante_id'] = user['contratante_id']
             session['empresa_id'] = user['empresa_id']
             session['rango'] = user['rango']
+            session['rol'] = user.get('rol', 'editor')
             session['puede_agregar_usuarios'] = user['puede_agregar_usuarios']
             session['empresas_acceso'] = json.loads(user['empresas_acceso']) if user['empresas_acceso'] else [user['empresa_id']]
             
@@ -92,11 +95,3 @@ def registro():
         return redirect(url_for('onboarding.contratante'))
     
     return render_template('registro.html')
-
-def get_mysql():
-    """Importación lazy para evitar circular imports"""
-    from app_multitenant import mysql
-    return mysql
-
-
-bp = Blueprint('auth', __name__)

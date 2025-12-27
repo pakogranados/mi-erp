@@ -1,6 +1,5 @@
 from flask import Blueprint, render_template, session
 from utils.decorators import require_login, require_contratante_activo
-from app_multitenant import mysql
 
 bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
 
