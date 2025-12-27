@@ -118,7 +118,10 @@ def before_request():
             g.usuario_areas = []
 
 from routes import auth, onboarding, dashboard, admin
-
+app.register_blueprint(auth.bp)
+app.register_blueprint(onboarding.bp)
+app.register_blueprint(dashboard.bp)
+app.register_blueprint(admin.bp)
 
 
 @app.context_processor
