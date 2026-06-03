@@ -1,7 +1,7 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 {% block content %}
 <div class="container-fluid py-4">
-  <h2 class="mb-4">Gestión de Recetas</h2>
+  <h2 class="page-title">Gestión de Recetas</h2>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}

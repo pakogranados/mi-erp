@@ -11,17 +11,48 @@ def require_login(f):
     """Decorador que requiere que el usuario esté logueado y carga contexto multi-tenant"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get("user_id") or not session.get("empresa_id") or not session.get("contratante_id"):
+        if not session.get("usuario_id") or not session.get("empresa_id"):
             flash('Debes iniciar sesión primero', 'warning')
-            return redirect(url_for('auth.login'))
+            return redirect(url_for('login'))
         
-        g.user_id = int(session["user_id"])
+        # Cargar contexto básico
+        g.usuario_id = int(session["usuario_id"])
         g.empresa_id = int(session["empresa_id"])
-        g.contratante_id = int(session["contratante_id"])
+        
+        # Cargar contexto multi-tenant
+        g.contratante_id = session.get("contratante_id")
+        if g.contratante_id:
+            g.contratante_id = int(g.contratante_id)
+        
         g.rango = int(session.get("rango", 4))
         g.empresas_acceso = session.get("empresas_acceso", [])
         g.puede_agregar_usuarios = session.get("puede_agregar_usuarios", False)
         
+        # Información adicional para templates
+        g.usuario_nombre = session.get("username", "")
+        g.user_email = session.get("correo", "")
+        g.empresa_nombre = session.get("empresa_nombre", "")
+        g.contratante_nombre = session.get("contratante_nombre", "")
+        g.empresa_logo = session.get("empresa_logo")
+        g.rol = session.get("rol", "admin")
+
+        # Cargar permisos de áreas
+        g.modulos_permitidos = session.get("modulos_permitidos", [])
+        g.areas_usuario = session.get("areas_usuario", {})
+
+        # ✅ TEMPORAL: Si es admin, dar todos los permisos
+        g.rol = session.get('rol')
+        if g.rol == 'admin':
+            g.modulos_permitidos = ['administracion', 'compras', 'ventas', 'inventario', 'produccion']
+        
+        # 🔍 DEBUG - Ver qué valores tiene
+        print("=" * 50)
+        print(f"DEBUG: g.rol = {g.rol}")
+        print(f"DEBUG: g.modulos_permitidos = {g.modulos_permitidos}")
+        print(f"DEBUG: session['modulos_permitidos'] = {session.get('modulos_permitidos', [])}")
+        print("=" * 50)
+
+
         return f(*args, **kwargs)
     return decorated_function
 
@@ -32,9 +63,9 @@ def require_role(role):
         def decorated_function(*args, **kwargs):
             if session.get('rol') != role:
                 flash('No tienes el rol necesario para esta acción', 'danger')
-                return redirect(url_for('dashboard.index'))
+                return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
-        return decorator
+        return decorated_function
     return decorator
 
 def require_rango(nivel_maximo):
@@ -49,7 +80,7 @@ def require_rango(nivel_maximo):
             rango_actual = session.get('rango', 4)
             if rango_actual > nivel_maximo:
                 flash('No tienes el nivel jerárquico necesario para esta acción', 'danger')
-                return redirect(url_for('dashboard.index'))
+                return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
         return decorated_function
     return decorator
@@ -65,7 +96,7 @@ def require_module(module_code):
             empresa_id = session.get('empresa_id')
             if not empresa_id:
                 flash('No tienes una empresa seleccionada', 'danger')
-                return redirect(url_for('dashboard.index'))
+                return redirect(url_for('dashboard'))
             
             mysql = get_db()
             cur = mysql.connection.cursor()
@@ -80,7 +111,7 @@ def require_module(module_code):
             
             if not modulo:
                 flash(f'El módulo {module_code} no está activo para esta empresa', 'danger')
-                return redirect(url_for('dashboard.index'))
+                return redirect(url_for('dashboard'))
             
             return f(*args, **kwargs)
         return decorated_function
@@ -118,7 +149,7 @@ def require_empresa_access(f):
         
         if empresa_id not in empresas_acceso:
             flash('No tienes acceso a esta empresa', 'danger')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard'))
         
         return f(*args, **kwargs)
     return decorated_function
@@ -129,7 +160,7 @@ def require_puede_crear_usuarios(f):
     def decorated_function(*args, **kwargs):
         if not session.get('puede_agregar_usuarios', False):
             flash('No tienes permiso para agregar usuarios', 'danger')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -140,7 +171,7 @@ def require_reportes_consolidados(f):
         rango = session.get('rango', 4)
         if rango > 2:
             flash('No tienes permiso para ver reportes consolidados', 'danger')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -154,7 +185,7 @@ def require_admin(f):
         
         if session.get('rol') != 'admin':
             flash('Requiere permisos de administrador', 'danger')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard'))
         
         g.user_id = int(session["user_id"])
         g.empresa_id = int(session["empresa_id"])
@@ -181,7 +212,7 @@ def require_super_admin(f):
         
         if not user or not user.get('es_super_admin'):
             flash('Requiere permisos de super administrador', 'danger')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard'))
         
         return f(*args, **kwargs)
     return decorated_function

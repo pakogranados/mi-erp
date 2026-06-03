@@ -1,0 +1,491 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="page-title mb-1">
+                <i class="fas fa-edit"></i> Editor de Layout: {{ almacen.nombre }}
+            </h2>
+            <p class="text-muted small mb-0">
+                Dimensiones: {{ "%.1f"|format(almacen.ancho_metros or 0) }}m × 
+                {{ "%.1f"|format(almacen.largo_metros or 0) }}m × 
+                {{ "%.1f"|format(almacen.alto_metros or 0) }}m
+            </p>
+        </div>
+        <div class="btn-group">
+            <a href="{{ url_for('almacen_mapa_visual', almacen_id=almacen.id) }}" 
+               class="btn btn-info">
+                <i class="fas fa-map"></i> Ver Mapa
+            </a>
+            <a href="{{ url_for('almacen_configuracion') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="row">
+        <!-- FORMULARIO AGREGAR ELEMENTO -->
+        <div class="col-lg-4 mb-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-plus"></i> Agregar Elemento</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Tipo de Elemento <span class="text-danger">*</span></label>
+                            <select name="tipo" class="form-select" required>
+                                <option value="mesa">Mesa</option>
+                                <option value="repisa">Repisa</option>
+                                <option value="rack">Rack</option>
+                                <option value="refrigerador">Refrigerador</option>
+                                <option value="congelador">Congelador</option>
+                                <option value="estanteria">Estantería</option>
+                                <option value="pallet">Pallet</option>
+                                <option value="otro">Otro</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                            <input type="text" name="nombre" class="form-control" required
+                                   placeholder="Ej: Mesa Principal">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Código <span class="text-danger">*</span></label>
+                            <input type="text" name="codigo" class="form-control" required
+                                   placeholder="Ej: MESA-01">
+                            <small class="text-muted">Se usará para generar ubicaciones</small>
+                        </div>
+
+                        <hr>
+                        <h6 class="mb-3">Dimensiones (metros)</h6>
+
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label">Ancho</label>
+                                <input type="number" name="ancho" class="form-control" 
+                                       step="0.01" min="0" value="0.8">
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label">Largo</label>
+                                <input type="number" name="largo" class="form-control" 
+                                       step="0.01" min="0" value="0.8">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Alto</label>
+                            <input type="number" name="alto" class="form-control" 
+                                   step="0.01" min="0" value="1.5">
+                        </div>
+
+                        <hr>
+                        <h6 class="mb-3">Posición en el almacén</h6>
+
+                        <div class="mb-3">
+                            <label class="form-label">Selecciona Cuadrante <span class="text-danger">*</span></label>
+                            <div id="grid-selector" class="border rounded p-3 bg-light">
+                                <!-- Se genera dinámicamente -->
+                            </div>
+                            <input type="hidden" name="cuadrante" id="cuadrante_seleccionado" required>
+                            <small class="text-muted">Click en un cuadrante para seleccionarlo</small>
+                        </div>
+                        <hr>
+                        <h6 class="mb-3">Ubicaciones</h6>
+
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label">Niveles</label>
+                                <input type="number" name="numero_niveles" class="form-control" 
+                                       min="1" value="2">
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label">Compartimentos</label>
+                                <input type="number" name="compartimentos_por_nivel" class="form-control" 
+                                       min="1" value="3">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Color</label>
+                            <input type="color" name="color_hex" class="form-control" value="#3498db">
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Agregar Elemento
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- LISTA DE ELEMENTOS -->
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-cubes"></i> Elementos Agregados
+                        <span class="badge bg-primary">{{ elementos|length }}</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if elementos and elementos|length > 0 %}
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>Nombre</th>
+                                        <th>Tipo</th>
+                                        <th>Dimensiones</th>
+                                        <th>Posición</th>
+                                        <th class="text-center">Ubicaciones</th>
+                                        <th class="text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for el in elementos %}
+                                    <tr>
+                                        <td>
+                                            <span class="badge" style="background-color: {{ el.color_hex }};">
+                                                {{ el.codigo }}
+                                            </span>
+                                        </td>
+                                        <td>{{ el.nombre }}</td>
+                                        <td>{{ el.tipo|capitalize }}</td>
+                                        <td class="small">
+                                            {{ "%.2f"|format(el.ancho_metros) }} × 
+                                            {{ "%.2f"|format(el.largo_metros) }} × 
+                                            {{ "%.2f"|format(el.alto_metros) }}m
+                                        </td>
+                                        <td class="small">
+                                            ({{ "%.1f"|format(el.posicion_x) }}, {{ "%.1f"|format(el.posicion_y) }})
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-info">
+                                                {{ el.numero_niveles * el.compartimentos_por_nivel }}
+                                            </span>
+                                        </td>
+                                        <td class="text-center">
+                                            <button class="btn btn-sm btn-primary" 
+                                                    onclick='editarElemento({{ el|tojson }})'>
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <form method="POST" action="{{ url_for('almacen_eliminar_elemento', almacen_id=almacen.id, elemento_id=el.id) }}" 
+                                                  style="display:inline;"
+                                                  onsubmit="return confirm('⚠️ ¿Eliminar este elemento y todas sus ubicaciones?');">
+                                                <button type="submit" class="btn btn-sm btn-danger">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            Agrega elementos (mesas, repisas, racks) para generar ubicaciones automáticamente.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- UBICACIONES GENERADAS -->
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-map-marker-alt"></i> Ubicaciones Generadas
+                        <span class="badge bg-dark">{{ ubicaciones|length }}</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if ubicaciones and ubicaciones|length > 0 %}
+                        <div class="row">
+                            {% for ub in ubicaciones %}
+                            <div class="col-md-4 mb-2">
+                                <div class="border rounded p-2 small">
+                                    <strong>{{ ub.codigo }}</strong><br>
+                                    <span class="text-muted">{{ ub.elemento_nombre }}</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info mb-0">
+                            Las ubicaciones se generarán automáticamente al agregar elementos.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Elemento -->
+<div class="modal fade" id="modalEditarElemento" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Editar Elemento</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formEditarElemento" method="POST">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nombre</label>
+                            <input type="text" name="nombre" id="edit_nombre" class="form-control" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Color</label>
+                            <input type="color" name="color_hex" id="edit_color" class="form-control">
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h6>Dimensiones (metros)</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Ancho</label>
+                            <input type="number" name="ancho" id="edit_ancho" class="form-control" step="0.01" min="0">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Largo</label>
+                            <input type="number" name="largo" id="edit_largo" class="form-control" step="0.01" min="0">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Alto</label>
+                            <input type="number" name="alto" id="edit_alto" class="form-control" step="0.01" min="0">
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h6>Posición</h6>
+                    <div class="mb-3">
+                        <label class="form-label">Selecciona Cuadrante</label>
+                        <div id="grid-selector-edit" class="border rounded p-3 bg-light">
+                            <!-- Se genera dinámicamente -->
+                        </div>
+                        <input type="hidden" name="cuadrante" id="cuadrante_edit">
+                        <small class="text-muted">Click en un cuadrante para cambiar la posición</small>
+                    </div>
+
+                    <hr>
+                    <h6>Ubicaciones</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Niveles</label>
+                            <input type="number" name="numero_niveles" id="edit_niveles" class="form-control" min="1">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Compartimentos por Nivel</label>
+                            <input type="number" name="compartimentos_por_nivel" id="edit_compartimentos" class="form-control" min="1">
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-warning small">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Nota:</strong> Si cambias el número de niveles o compartimentos, 
+                        se regenerarán todas las ubicaciones.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function editarElemento(elemento) {
+    document.getElementById('edit_nombre').value = elemento.nombre;
+    document.getElementById('edit_ancho').value = elemento.ancho_metros;
+    document.getElementById('edit_largo').value = elemento.largo_metros;
+    document.getElementById('edit_alto').value = elemento.alto_metros;
+    document.getElementById('edit_niveles').value = elemento.numero_niveles;
+    document.getElementById('edit_compartimentos').value = elemento.compartimentos_por_nivel;
+    document.getElementById('edit_color').value = elemento.color_hex;
+    
+    // Configurar cuadrante actual
+    document.getElementById('cuadrante_edit').value = elemento.cuadrante_codigo || '';
+    
+    // Generar grid en el modal de edición
+    generarGridEdicion(elemento.cuadrante_codigo);
+    
+    const form = document.getElementById('formEditarElemento');
+    form.action = `/almacen/{{ almacen.id }}/elemento/${elemento.id}/editar`;
+    
+    const modal = new bootstrap.Modal(document.getElementById('modalEditarElemento'));
+    modal.show();
+}
+
+function generarGridEdicion(cuadranteActual) {
+    const almacenAncho = {{ almacen.ancho_metros or 3 }};
+    const almacenLargo = {{ almacen.largo_metros or 3 }};
+    const tamanoCuadrante = {{ almacen.tamano_cuadrante or 1.0 }};
+    
+    const columnas = Math.ceil(almacenAncho / tamanoCuadrante);
+    const filas = Math.ceil(almacenLargo / tamanoCuadrante);
+    
+    let gridHtml = '<div style="display: inline-block; border: 2px solid #2c3e50;">';
+    
+    for (let f = 0; f < filas; f++) {
+        const fila = String.fromCharCode(65 + f);
+        gridHtml += '<div style="display: flex;">';
+        for (let c = 1; c <= columnas; c++) {
+            const cuadrante = fila + c;
+            const cuadrantesActuales = cuadranteActual ? cuadranteActual.split(',').map(c => c.trim()) : [];
+            const esActual = cuadrantesActuales.includes(cuadrante);
+            const bgColor = esActual ? '#3498db' : 'white';
+            const color = esActual ? 'white' : 'black';
+            const borderWidth = esActual ? '3px' : '1px';
+            
+            gridHtml += `<div class="cuadrante-cell-edit" data-cuadrante="${cuadrante}"
+                         style="width: 50px; height: 50px; border: ${borderWidth} solid #bdc3c7; 
+                         display: flex; align-items: center; justify-content: center; 
+                         cursor: pointer; background: ${bgColor}; color: ${color};
+                         font-size: 12px; font-weight: bold; transition: all 0.2s;">
+                         ${cuadrante}</div>`;
+        }
+        gridHtml += '</div>';
+    }
+    gridHtml += '</div>';
+    
+    document.getElementById('grid-selector-edit').innerHTML = gridHtml;
+    
+    // Array para selección múltiple en edición
+    let cuadrantesEdit = cuadranteActual ? cuadranteActual.split(',').map(c => c.trim()) : [];
+
+    // Event listener para el grid de edición (selección múltiple)
+    document.querySelectorAll('.cuadrante-cell-edit').forEach(cell => {
+        cell.addEventListener('click', function() {
+            const cuadrante = this.dataset.cuadrante;
+            
+            if (cuadrantesEdit.includes(cuadrante)) {
+                cuadrantesEdit = cuadrantesEdit.filter(c => c !== cuadrante);
+                this.style.background = 'white';
+                this.style.color = 'black';
+                this.style.borderWidth = '1px';
+            } else {
+                cuadrantesEdit.push(cuadrante);
+                this.style.background = '#3498db';
+                this.style.color = 'white';
+                this.style.borderWidth = '3px';
+                this.style.borderColor = '#2980b9';
+            }
+            
+            cuadrantesEdit.sort();
+            document.getElementById('cuadrante_edit').value = cuadrantesEdit.join(',');
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Generar grid de cuadrantes
+    const almacenAncho = {{ almacen.ancho_metros or 3 }};
+    const almacenLargo = {{ almacen.largo_metros or 3 }};
+    const tamanoCuadrante = {{ almacen.tamano_cuadrante or 1.0 }};
+
+    const columnas = Math.ceil(almacenAncho / tamanoCuadrante);
+    const filas = Math.ceil(almacenLargo / tamanoCuadrante);
+
+    let gridHtml = '<div style="display: inline-block; border: 2px solid #2c3e50;">';
+
+    for (let f = 0; f < filas; f++) {
+        const fila = String.fromCharCode(65 + f); // A, B, C...
+        gridHtml += '<div style="display: flex;">';
+        for (let c = 1; c <= columnas; c++) {
+            const cuadrante = fila + c;
+            gridHtml += `<div class="cuadrante-cell" data-cuadrante="${cuadrante}"
+                         style="width: 50px; height: 50px; border: 1px solid #bdc3c7; 
+                         display: flex; align-items: center; justify-content: center; 
+                         cursor: pointer; background: white; font-size: 12px; font-weight: bold;
+                         transition: all 0.2s;">
+                         ${cuadrante}</div>`;
+        }
+        gridHtml += '</div>';
+    }
+    gridHtml += '</div>';
+
+    document.getElementById('grid-selector').innerHTML = gridHtml;
+
+    // Array para guardar cuadrantes seleccionados
+    let cuadrantesSeleccionados = [];
+
+    // Event listener para seleccionar múltiples cuadrantes
+    document.querySelectorAll('.cuadrante-cell').forEach(cell => {
+        cell.addEventListener('click', function() {
+            const cuadrante = this.dataset.cuadrante;
+            
+            // Si ya está seleccionado, deseleccionar
+            if (cuadrantesSeleccionados.includes(cuadrante)) {
+                cuadrantesSeleccionados = cuadrantesSeleccionados.filter(c => c !== cuadrante);
+                this.style.background = 'white';
+                this.style.color = 'black';
+                this.style.borderWidth = '1px';
+            } else {
+                // Agregar a selección
+                cuadrantesSeleccionados.push(cuadrante);
+                this.style.background = '#3498db';
+                this.style.color = 'white';
+                this.style.borderWidth = '3px';
+                this.style.borderColor = '#2980b9';
+            }
+            
+            // Ordenar alfabéticamente
+            cuadrantesSeleccionados.sort();
+            
+            // Guardar como string separado por comas
+            document.getElementById('cuadrante_seleccionado').value = cuadrantesSeleccionados.join(',');
+            
+            // Mostrar selección actual
+            const posicionSection = this.closest('.mb-3');
+            const label = posicionSection ? posicionSection.querySelector('.form-label') : null;
+            if (label && cuadrantesSeleccionados.length > 0) {
+                label.innerHTML = `Selecciona Cuadrante(s) <span class="text-danger">*</span> <span class="badge bg-primary">${cuadrantesSeleccionados.length}</span>: ${cuadrantesSeleccionados.join(', ')}`;
+            } else if (label) {
+                label.innerHTML = 'Selecciona Cuadrante(s) <span class="text-danger">*</span>';
+            }
+        });
+    });
+
+    // Marcar elementos ya existentes (pueden ocupar múltiples cuadrantes)
+    const elementosExistentes = {{ elementos|tojson }};
+    elementosExistentes.forEach(el => {
+        if (el.cuadrante_codigo) {
+            // Separar cuadrantes por coma
+            const cuadrantes = el.cuadrante_codigo.split(',').map(c => c.trim());
+            cuadrantes.forEach(cuad => {
+                const cell = document.querySelector(`[data-cuadrante="${cuad}"]`);
+                if (cell) {
+                    cell.style.background = el.color_hex;
+                    cell.style.color = 'white';
+                    cell.style.opacity = '0.6';
+                    cell.title = el.nombre;
+                    cell.style.cursor = 'not-allowed';
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}

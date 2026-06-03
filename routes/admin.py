@@ -78,7 +78,7 @@ def config_modulos():
     cur.execute("SELECT * FROM empresas WHERE contratante_id = %s ORDER BY nombre", (g.contratante_id,))
     empresas = cur.fetchall()
     
-    cur.execute("SELECT * FROM catalogo_modulos WHERE activo = TRUE ORDER BY orden")
+    cur.execute("SELECT * FROM catalogo_modulos WHERE activo = TRUE ORDER BY nombre")
     modulos = cur.fetchall()
     
     modulos_empresa = {}

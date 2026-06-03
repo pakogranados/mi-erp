@@ -1,0 +1,292 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+
+<style>
+  .dashboard-container {
+    padding: 15px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  
+  .dashboard-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+  }
+  
+  .dashboard-header h2 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 700;
+  }
+  
+  .dashboard-header p {
+    margin: 5px 0 0 0;
+    opacity: 0.9;
+    font-size: 14px;
+  }
+  
+  .video-section {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    max-width: 50%;
+  }
+  
+  .video-section h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-weight: 600;
+  }
+  
+  .video-wrapper {
+    position: relative;
+    padding-bottom: 56.25%; /* 16:9 */
+    height: 0;
+    overflow: hidden;
+    background: #f0f0f0;
+    border-radius: 8px;
+  }
+  
+  .video-wrapper iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  
+  .video-placeholder {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #999;
+  }
+  
+  .video-placeholder i {
+    font-size: 60px;
+    margin-bottom: 10px;
+  }
+  
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  
+  .metric-card {
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border-left: 5px solid;
+  }
+  
+  .metric-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+  }
+  
+  .metric-card.primary { border-color: #667eea; }
+  .metric-card.success { border-color: #38ef7d; }
+  .metric-card.warning { border-color: #f093fb; }
+  .metric-card.info { border-color: #4facfe; }
+  
+  .metric-card .icon {
+    font-size: 40px;
+    margin-bottom: 15px;
+  }
+  
+  .metric-card.primary .icon { color: #667eea; }
+  .metric-card.success .icon { color: #38ef7d; }
+  .metric-card.warning .icon { color: #f093fb; }
+  .metric-card.info .icon { color: #4facfe; }
+  
+  .metric-card .value {
+    font-size: 36px;
+    font-weight: 700;
+    color: #333;
+    margin: 10px 0;
+  }
+  
+  .metric-card .label {
+    font-size: 14px;
+    color: #666;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  .metric-card .detail {
+    font-size: 13px;
+    color: #999;
+    margin-top: 8px;
+  }
+  
+  .quick-actions {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  }
+  
+  .quick-actions h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-weight: 600;
+  }
+  
+  .action-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  
+  .action-btn {
+    padding: 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    text-align: center;
+    text-decoration: none;
+    color: #333;
+    transition: all 0.3s ease;
+    font-weight: 600;
+  }
+  
+  .action-btn:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+    color: #667eea;
+    transform: translateY(-2px);
+  }
+  
+  .action-btn i {
+    display: block;
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+  
+  .admin-config-link {
+    text-align: center;
+    margin-top: 15px;
+  }
+  
+  .admin-config-link a {
+    color: #667eea;
+    text-decoration: none;
+    font-size: 13px;
+  }
+  
+  .admin-config-link a:hover {
+    text-decoration: underline;
+  }
+</style>
+
+<div class="dashboard-container">
+  
+  <!-- Header -->
+  <div class="dashboard-header">
+    <h2>🏢 Administración</h2>
+    <p>Gestión de usuarios, permisos y configuración del sistema</p>
+  </div>
+  
+  <!-- Video Tutorial -->
+  <div class="video-section">
+    <h4>📺 Video Tutorial</h4>
+    {% if video_url %}
+      <div class="video-wrapper">
+        <iframe src="{{ video_url }}" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                allowfullscreen>
+        </iframe>
+      </div>
+      <div class="admin-config-link">
+        <a href="/admin/dashboard-videos">⚙️ Configurar video</a>
+      </div>
+    {% else %}
+      <div class="video-wrapper">
+        <div class="video-placeholder">
+          <i>🎥</i>
+          <p><strong>Video no configurado</strong></p>
+          <p style="font-size: 12px;">Configura el link de YouTube en el panel de administración</p>
+        </div>
+      </div>
+      <div class="admin-config-link">
+        <a href="/admin/dashboard-videos">⚙️ Configurar video de este módulo</a>
+      </div>
+    {% endif %}
+  </div>
+  
+  <!-- Métricas Principales -->
+  <div class="metrics-grid">
+    
+    <!-- Total Usuarios -->
+    <div class="metric-card primary">
+      <div class="icon">👥</div>
+      <div class="value">{{ total_usuarios or 0 }}</div>
+      <div class="label">Usuarios Totales</div>
+      <div class="detail">Registrados en el sistema</div>
+    </div>
+    
+    <!-- Usuarios Activos -->
+    <div class="metric-card success">
+      <div class="icon">✅</div>
+      <div class="value">{{ usuarios_activos or 0 }}</div>
+      <div class="label">Usuarios Activos</div>
+      <div class="detail">{{ porcentaje_activos or 0 }}% del total</div>
+    </div>
+    
+    <!-- Áreas de Producción -->
+    <div class="metric-card warning">
+      <div class="icon">🏭</div>
+      <div class="value">{{ areas_produccion or 0 }}</div>
+      <div class="label">Áreas de Producción</div>
+      <div class="detail">En operación</div>
+    </div>
+    
+    <!-- Empresas Activas -->
+    <div class="metric-card info">
+      <div class="icon">🏢</div>
+      <div class="value">{{ empresas_activas or 0 }}</div>
+      <div class="label">Empresas Activas</div>
+      <div class="detail">Multi-tenant</div>
+    </div>
+    
+  </div>
+  
+  <!-- Accesos Rápidos -->
+  <div class="quick-actions">
+    <h4>⚡ Accesos Rápidos</h4>
+    <div class="action-buttons">
+      <a href="/usuarios" class="action-btn">
+        <i>👤</i>
+        <span>Usuarios</span>
+      </a>
+      <a href="/areas" class="action-btn">
+        <i>🏭</i>
+        <span>Áreas</span>
+      </a>
+      <a href="/empresas" class="action-btn">
+        <i>🏢</i>
+        <span>Empresas</span>
+      </a>
+      <a href="/roles" class="action-btn">
+        <i>🔐</i>
+        <span>Roles</span>
+      </a>
+    </div>
+  </div>
+  
+</div>
+
+{% endblock %}

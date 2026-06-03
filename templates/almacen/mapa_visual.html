@@ -1,0 +1,335 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="page-title mb-1">
+                <i class="fas fa-map"></i> Mapa Visual: {{ almacen.nombre }}
+            </h2>
+            <p class="text-muted small mb-0">
+                Visualización 2D del layout del almacén
+            </p>
+        </div>
+        <div class="btn-group">
+            <a href="{{ url_for('almacen_editor', almacen_id=almacen.id) }}" 
+               class="btn btn-primary">
+                <i class="fas fa-edit"></i> Editar Layout
+            </a>
+            <a href="{{ url_for('almacen_configuracion') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- CANVAS DEL MAPA -->
+        <div class="col-lg-9 mb-4">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-warehouse"></i> Plano del Almacén
+                    </h5>
+                </div>
+                <div class="card-body bg-light p-4">
+                    <canvas id="mapaCanvas" width="800" height="600" 
+                            style="border: 2px solid #ddd; background: white; width: 100%; max-width: 800px;">
+                    </canvas>
+                </div>
+                <div class="card-footer">
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle"></i>
+                        Dimensiones: {{ "%.1f"|format(almacen.ancho_metros or 0) }}m × 
+                        {{ "%.1f"|format(almacen.largo_metros or 0) }}m
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- LEYENDA Y ELEMENTOS -->
+        <div class="col-lg-3">
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="fas fa-list"></i> Elementos</h6>
+                </div>
+                <div class="card-body">
+                    {% if elementos and elementos|length > 0 %}
+                        {% for el in elementos %}
+                        <div class="d-flex align-items-center mb-2 p-2 border rounded">
+                            <div style="width: 20px; height: 20px; background-color: {{ el.color_hex }}; 
+                                        border-radius: 3px; margin-right: 8px;"></div>
+                            <div class="flex-grow-1">
+                                <strong class="small">{{ el.codigo }}</strong><br>
+                                <small class="text-muted">{{ el.nombre }}</small><br>
+                                <small class="text-muted">Cuadrantes: {{ el.cuadrante_codigo or 'N/A' }}</small>
+                            </div>
+                            <div class="text-end">
+                                {% set ocupacion_pct = (el.ubicaciones_ocupadas / el.total_ubicaciones * 100) if el.total_ubicaciones > 0 else 0 %}
+                                <span class="badge {% if ocupacion_pct > 80 %}bg-danger{% elif ocupacion_pct > 50 %}bg-warning{% else %}bg-success{% endif %}">
+                                    {{ "%.0f"|format(ocupacion_pct) }}%
+                                </span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="alert alert-info small mb-0">
+                            No hay elementos agregados
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="fas fa-palette"></i> Ocupación</h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <div style="width: 20px; height: 20px; background-color: #27ae60; 
+                                    border-radius: 3px; margin-right: 8px;"></div>
+                        <small>0-50% (Disponible)</small>
+                    </div>
+                    <div class="d-flex align-items-center mb-2">
+                        <div style="width: 20px; height: 20px; background-color: #f39c12; 
+                                    border-radius: 3px; margin-right: 8px;"></div>
+                        <small>51-80% (Medio)</small>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <div style="width: 20px; height: 20px; background-color: #e74c3c; 
+                                    border-radius: 3px; margin-right: 8px;"></div>
+                        <small>81-100% (Lleno)</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+console.log('=== INICIO DEL SCRIPT ===');
+const canvas = document.getElementById('mapaCanvas');
+const ctx = canvas.getContext('2d');
+
+// Datos del almacén
+const almacen = {
+    ancho: {{ almacen.ancho_metros or 3 }},
+    largo: {{ almacen.largo_metros or 3 }},
+    alto: {{ almacen.alto_metros or 3 }},
+    tamanoCuadrante: {{ almacen.tamano_cuadrante or 1.0 }}
+};
+
+// Elementos
+const elementos = {{ elementos|tojson }};
+
+console.log('Almacén:', almacen);
+console.log('Elementos:', elementos);
+
+// Escala: 1 metro = 60 píxeles
+const escala = 60;
+const margen = 50;
+
+// Función para dibujar el almacén
+function dibujarAlmacen() {
+    // Limpiar canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Dibujar contorno del almacén
+    ctx.strokeStyle = '#2c3e50';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(margen, margen, 
+                   almacen.ancho * escala, 
+                   almacen.largo * escala);
+    
+    // Etiqueta del almacén
+    ctx.fillStyle = '#2c3e50';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText('{{ almacen.nombre }}', margen, margen - 10);
+    
+    // Dimensiones
+    ctx.font = '12px Arial';
+    ctx.fillStyle = '#7f8c8d';
+    ctx.fillText(almacen.ancho + 'm', margen + (almacen.ancho * escala / 2) - 15, margen - 25);
+    ctx.fillText(almacen.largo + 'm', margen - 35, margen + (almacen.largo * escala / 2));
+    
+    // Dibujar grid de cuadrantes
+    ctx.strokeStyle = '#ecf0f1';
+    ctx.lineWidth = 0.5;
+    const numCuadrantesAncho = Math.ceil(almacen.ancho / almacen.tamanoCuadrante);
+    const numCuadrantesLargo = Math.ceil(almacen.largo / almacen.tamanoCuadrante);
+    
+    for (let i = 1; i < numCuadrantesAncho; i++) {
+        ctx.beginPath();
+        ctx.moveTo(margen + i * almacen.tamanoCuadrante * escala, margen);
+        ctx.lineTo(margen + i * almacen.tamanoCuadrante * escala, margen + almacen.largo * escala);
+        ctx.stroke();
+    }
+    for (let i = 1; i < numCuadrantesLargo; i++) {
+        ctx.beginPath();
+        ctx.moveTo(margen, margen + i * almacen.tamanoCuadrante * escala);
+        ctx.lineTo(margen + almacen.ancho * escala, margen + i * almacen.tamanoCuadrante * escala);
+        ctx.stroke();
+    }
+    
+    // Dibujar elementos (pueden ocupar múltiples cuadrantes)
+    elementos.forEach(el => {
+        // Calcular color según ocupación
+        const ocupacion = el.total_ubicaciones > 0 
+            ? (el.ubicaciones_ocupadas / el.total_ubicaciones) 
+            : 0;
+        
+        let color = el.color_hex;
+        if (ocupacion > 0.8) {
+            color = '#e74c3c'; // Rojo
+        } else if (ocupacion > 0.5) {
+            color = '#f39c12'; // Naranja
+        } else {
+            color = '#27ae60'; // Verde
+        }
+        
+        // Si el elemento ocupa múltiples cuadrantes, dibujar cada uno
+        if (el.cuadrante_codigo && el.cuadrante_codigo.includes(',')) {
+            const cuadrantes = el.cuadrante_codigo.split(',').map(c => c.trim());
+            
+            cuadrantes.forEach((cuad, idx) => {
+                // Extraer fila y columna del cuadrante
+                const fila = cuad[0];
+                const columna = parseInt(cuad.substring(1));
+                
+                const filaNum = fila.charCodeAt(0) - 65; // A=0, B=1, etc.
+                const columnaNum = columna - 1;
+                
+                const x = margen + (columnaNum * almacen.tamanoCuadrante * escala);
+                const y = margen + (filaNum * almacen.tamanoCuadrante * escala);
+                const w = almacen.tamanoCuadrante * escala;
+                const h = almacen.tamanoCuadrante * escala;
+                
+                // Dibujar cuadrante
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, w, h);
+                
+                // Borde
+                ctx.strokeStyle = '#2c3e50';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, w, h);
+                
+                // Texto del código del cuadrante
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(cuad, x + w/2, y + h/2 - 10);
+                
+                // Etiqueta del elemento (solo en el primer cuadrante)
+                if (idx === 0) {
+                    ctx.font = 'bold 12px Arial';
+                    ctx.fillText(el.codigo, x + w/2, y + h/2 + 10);
+                }
+            });
+        } else if (el.cuadrante_codigo) {
+            // Elemento de UN SOLO cuadrante
+            const cuad = el.cuadrante_codigo.trim();
+            const fila = cuad[0];
+            const columna = parseInt(cuad.substring(1));
+            
+            const filaNum = fila.charCodeAt(0) - 65;
+            const columnaNum = columna - 1;
+            
+            const x = margen + (columnaNum * almacen.tamanoCuadrante * escala);
+            const y = margen + (filaNum * almacen.tamanoCuadrante * escala);
+            const w = almacen.tamanoCuadrante * escala;
+            const h = almacen.tamanoCuadrante * escala;
+            
+            // Dibujar cuadrante
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            
+            // Borde
+            ctx.strokeStyle = '#2c3e50';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            
+            // Texto del código del cuadrante
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(cuad, x + w/2, y + h/2 - 10);
+            
+            // Etiqueta del elemento
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText(el.codigo, x + w/2, y + h/2 + 10);
+        }
+    });
+}
+
+// Dibujar al cargar
+dibujarAlmacen();
+
+// Tooltip al hacer hover
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Ajustar por escala del canvas
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = mouseX * scaleX;
+    const y = mouseY * scaleY;
+    
+    let found = false;
+    
+    elementos.forEach(el => {
+        let mouseEnElemento = false;
+        
+        // Si tiene múltiples cuadrantes, verificar cada uno
+        if (el.cuadrante_codigo && el.cuadrante_codigo.includes(',')) {
+            const cuadrantes = el.cuadrante_codigo.split(',').map(c => c.trim());
+            
+            cuadrantes.forEach(cuad => {
+                const fila = cuad[0];
+                const columna = parseInt(cuad.substring(1));
+                const filaNum = fila.charCodeAt(0) - 65;
+                const columnaNum = columna - 1;
+                
+                const ex = margen + (columnaNum * almacen.tamanoCuadrante * escala);
+                const ey = margen + (filaNum * almacen.tamanoCuadrante * escala);
+                const ew = almacen.tamanoCuadrante * escala;
+                const eh = almacen.tamanoCuadrante * escala;
+                
+                if (x >= ex && x <= ex + ew && y >= ey && y <= ey + eh) {
+                    mouseEnElemento = true;
+                }
+            });
+        } else if (el.cuadrante_codigo) {
+            // Elemento de un solo cuadrante
+            const cuad = el.cuadrante_codigo.trim();
+            const fila = cuad[0];
+            const columna = parseInt(cuad.substring(1));
+            const filaNum = fila.charCodeAt(0) - 65;
+            const columnaNum = columna - 1;
+            
+            const ex = margen + (columnaNum * almacen.tamanoCuadrante * escala);
+            const ey = margen + (filaNum * almacen.tamanoCuadrante * escala);
+            const ew = almacen.tamanoCuadrante * escala;
+            const eh = almacen.tamanoCuadrante * escala;
+            
+            if (x >= ex && x <= ex + ew && y >= ey && y <= ey + eh) {
+                mouseEnElemento = true;
+            }
+        }
+        
+        if (mouseEnElemento) {
+            canvas.style.cursor = 'pointer';
+            const cuadrantes = el.cuadrante_codigo ? el.cuadrante_codigo : 'N/A';
+            canvas.title = `${el.nombre}\nCuadrantes: ${cuadrantes}\n${el.ubicaciones_ocupadas}/${el.total_ubicaciones} ubicaciones ocupadas`;
+            found = true;
+        }
+    });
+    
+    if (!found) {
+        canvas.style.cursor = 'default';
+        canvas.title = '';
+    }
+});
+</script>
+{% endblock %}

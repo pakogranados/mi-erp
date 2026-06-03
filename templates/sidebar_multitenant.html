@@ -99,17 +99,28 @@
             z-index: 1001;
         }
 
-        .sidebar-toggle:hover { background: #2980b9; }
+        .sidebar-toggle:hover {
+            background: #2980b9;
+            transform: scale(1.1);
+        }
+
+        #sidebar.collapsed .sidebar-toggle i {
+            transform: rotate(180deg);
+        }
 
         .nav-link {
+            color: rgba(255,255,255,0.8);
+            padding: 0.75rem 1rem;
+            transition: all 0.2s;
             display: flex;
             align-items: center;
-            padding: 0.75rem 1rem;
-            color: rgba(255,255,255,0.8);
-            text-decoration: none;
-            transition: all 0.2s;
             border-left: 3px solid transparent;
-            white-space: nowrap;
+        }
+
+        .nav-link i {
+            width: 20px;
+            margin-right: 0.75rem;
+            text-align: center;
         }
 
         .nav-link:hover {
@@ -119,29 +130,54 @@
         }
 
         .nav-link.active {
-            background: rgba(52, 152, 219, 0.2);
+            background: var(--accent-color);
             color: white;
-            border-left-color: var(--accent-color);
+            border-left-color: white;
         }
 
-        .nav-link i {
-            width: 24px;
-            margin-right: 0.75rem;
-            font-size: 1.1rem;
-            text-align: center;
+        #sidebar.collapsed .nav-link span {
+            opacity: 0;
+            width: 0;
         }
 
-        #sidebar.collapsed .nav-link i { margin-right: 0; }
-        #sidebar.collapsed .nav-link span { display: none; }
+        .accordion-button {
+            transition: all 0.2s;
+        }
+
+        .accordion-button:not(.collapsed) {
+            box-shadow: none;
+        }
+
+        .accordion-button:focus {
+            box-shadow: none;
+        }
+
+        .accordion-button::after {
+            filter: brightness(0) invert(1);
+        }
 
         .user-info {
             padding: 1rem;
             border-top: 1px solid rgba(255,255,255,0.1);
-            color: rgba(255,255,255,0.7);
-            font-size: 0.85rem;
+            color: rgba(255,255,255,0.8);
+            margin-top: auto;
         }
 
-        #sidebar.collapsed .user-info { display: none; }
+        #sidebar.collapsed .user-info {
+            opacity: 0;
+        }
+
+        /* Accordion item styles */
+        .accordion-item {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        .accordion-body {
+            padding: 0;
+        }
+
+        #sidebar.collapsed .accordion { display: none; }
 
         @media (max-width: 768px) {
             #sidebar { transform: translateX(-100%); }
@@ -149,52 +185,207 @@
             #content { margin-left: 0; }
             .sidebar-toggle { left: 15px; right: auto; }
         }
+
+        /* FORZAR VISIBILIDAD DE SUBMENÚS */
+        .accordion-body a,
+        .accordion-body .nav-link,
+        .accordion-collapse a,
+        .accordion-collapse .nav-link {
+            color: #ffffff !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            display: block !important;
+            background: rgba(0,0,0,0.2) !important;
+            margin-bottom: 2px !important;
+        }
+
+        .accordion-body a:hover,
+        .accordion-body .nav-link:hover {
+            background: rgba(255,255,255,0.2) !important;
+            color: #fff !important;
+        }
+
+        /* TÍTULOS ESTANDARIZADOS */
+        h2.page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .top-bar .empresa-logo-circle {
+            transition: transform 0.2s ease;
+        }
+
+        .top-bar .empresa-logo-circle:hover {
+            transform: scale(1.1);
+        }
+         /* SIDEBAR - Tipografía compacta */
+        .accordion-button {
+            font-size: 0.75rem !important;
+            padding: 0.4rem 1rem !important;
+        }
+
+        .accordion-button i {
+            font-size: 0.75rem !important;
+        }
+
+        .accordion-body a,
+        .accordion-body .nav-link,
+        .accordion-collapse a,
+        .accordion-collapse .nav-link {
+            font-size: 0.72rem !important;
+            padding-top: 0.25rem !important;
+            padding-bottom: 0.25rem !important;
+            line-height: 1.3 !important;
+            margin-bottom: 1px !important;
+        }
+
+        .sidebar-header h4 {
+            font-size: 0.95rem !important;
+        }
+
+        .nav-link {
+            padding: 0.4rem 1rem !important;
+            font-size: 0.75rem !important;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
     <!-- Top Bar -->
-    <nav class="top-bar d-flex align-items-center px-4">
-        <a class="navbar-brand d-flex align-items-center text-decoration-none" href="{{ url_for('dashboard.index') }}">
+    <nav class="top-bar d-flex align-items-center justify-content-between px-4">
+        <!-- Left: Logo + Empresa + Usuario -->
+        <a class="navbar-brand d-flex align-items-center text-decoration-none" href="{{ url_for('dashboard') }}">
+            <!-- Logo de empresa o inicial -->
             {% if g.empresa_logo %}
-            <img src="{{ g.empresa_logo }}" alt="Logo" class="me-2" style="height: 40px; width: 40px; object-fit: contain; border-radius: 8px;">
+            <img src="{{ g.empresa_logo }}" 
+                alt="{{ g.empresa_nombre }}" 
+                class="me-2"
+                style="width: 40px; height: 40px; object-fit: cover; border-radius: 8px; border: 2px solid #dee2e6;">
             {% else %}
-            <div class="me-2 d-flex align-items-center justify-content-center bg-primary text-white rounded" style="height: 40px; width: 40px; font-size: 1.2rem; font-weight: bold;">
+            <div class="me-2 d-flex align-items-center justify-content-center bg-primary text-white rounded" 
+                style="height: 40px; width: 40px; font-size: 1.2rem; font-weight: bold;">
                 {{ g.empresa_nombre[0] if g.empresa_nombre else 'E' }}
-            </div> 
+            </div>
             {% endif %}
+            
+            <!-- Nombre empresa + usuario -->
             <div class="d-flex flex-column">
-                <strong class="text-dark" style="line-height: 1.2;">{{ g.empresa_nombre or 'Mi Empresa' }}</strong>
-                <small class="text-muted" style="font-size: 0.75rem;">{{ g.usuario_nombre or session.get('username', 'Usuario') }}</small>
+                <strong class="text-dark" style="line-height: 1.2;">
+                    {{ g.empresa_nombre or 'Mi Empresa' }}
+                </strong>
+                <small class="text-muted" style="font-size: 0.75rem;">
+                    {{ g.usuario_nombre or session.get('username', 'Usuario') }}
+                </small>
             </div>
         </a>
-
-        <div class="ms-auto d-flex align-items-center gap-3">
+        
+        <!-- Right: Cambiar empresa + Notificaciones + User menu -->
+        <div class="d-flex align-items-center gap-3">
+            <!-- Botón cambiar empresa (si tiene múltiples) -->
+            {% if g.empresas_acceso and g.empresas_acceso|length > 1 %}
+            <a href="{{ url_for('seleccionar_empresa') }}" 
+            class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-exchange-alt"></i> Cambiar Empresa
+            </a>
+            {% endif %}
+            
+            <!-- Notificaciones -->
+            <button class="btn btn-link text-dark position-relative p-0" style="font-size: 1.2rem;">
+                <i class="fas fa-bell"></i>
+                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" 
+                    style="font-size: 0.6rem;">
+                    3
+                </span>
+            </button>
+            
+            <!-- User dropdown -->
             <div class="dropdown">
-                <button class="btn btn-link text-dark position-relative" type="button" id="notificationsDropdown" data-bs-toggle="dropdown">
-                    <i class="fas fa-bell"></i>
+                <button class="btn btn-link text-dark dropdown-toggle p-0" 
+                        type="button" 
+                        data-bs-toggle="dropdown"
+                        style="font-size: 1.2rem;">
+                    <i class="fas fa-user-circle"></i>
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="notificationsDropdown">
-                    <li><h6 class="dropdown-header">Notificaciones</h6></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-muted small">No hay notificaciones</a></li>
-                </ul>
-            </div>
-
-            <div class="dropdown">
-                <button class="btn btn-link text-dark" type="button" id="userDropdown" data-bs-toggle="dropdown">
-                    <i class="fas fa-user-circle fa-lg"></i>
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="userDropdown">
-                    <li><h6 class="dropdown-header">{{ g.usuario_nombre }}</h6></li>
-                    <li><span class="dropdown-item-text small text-muted">{{ g.user_email }}</span></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Cerrar Sesión</a></li>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('logout') }}">
+                            <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
     </nav>
 
+<div class="ms-auto d-flex align-items-center gap-3">
+    <!-- Notificaciones -->
+    <div class="dropdown">
+        <button class="btn btn-link text-dark position-relative" type="button" id="notificationsDropdown" data-bs-toggle="dropdown">
+            <i class="fas fa-bell"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="notificationsDropdown">
+            <li><h6 class="dropdown-header">Notificaciones</h6></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item text-muted small">No hay notificaciones</a></li>
+        </ul>
+    </div>
+
+    <!-- Perfil de Usuario -->
+    <div class="dropdown">
+        <button class="btn btn-link text-dark" type="button" id="userDropdown" data-bs-toggle="dropdown">
+            <i class="fas fa-user-circle fa-lg"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end shadow-lg" style="min-width: 280px;" aria-labelledby="userDropdown">
+            <!-- Header del perfil -->
+            <li class="px-3 py-3 border-bottom">
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <div class="d-flex align-items-center justify-content-center bg-primary text-white rounded-circle" 
+                             style="width: 50px; height: 50px; font-size: 1.5rem; font-weight: bold;">
+                            {{ g.usuario_nombre[0] if g.usuario_nombre else 'U' }}
+                        </div>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="fw-bold text-dark" style="font-size: 0.95rem;">{{ g.usuario_nombre }}</div>
+                        <div class="small text-muted" style="font-size: 0.8rem;">{{ g.user_email }}</div>
+                        {% if session.get('puesto') %}
+                        <div class="small text-muted" style="font-size: 0.75rem;">
+                            <i class="fas fa-briefcase"></i> {{ session.get('puesto') }}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </li>
+            
+            
+            <!-- Información de empresa -->
+            <li class="px-3 py-2 bg-light">
+                <div class="small text-muted mb-1" style="font-size: 0.75rem;">EMPRESA ACTIVA</div>
+                <div class="fw-semibold text-dark" style="font-size: 0.85rem;">
+                    <i class="fas fa-building text-primary"></i> {{ g.empresa_nombre }}
+                </div>
+                {% if g.contratante_nombre %}
+                <div class="small text-muted" style="font-size: 0.75rem;">
+                    <i class="fas fa-user"></i> {{ g.contratante_nombre }}
+                </div>
+                {% endif %}
+            </li>
+            
+            <li><hr class="dropdown-divider my-0"></li>
+            
+            <!-- Cerrar sesión -->
+            <li>
+                <a class="dropdown-item py-2 text-danger" href="{{ url_for('logout') }}">
+                    <i class="fas fa-sign-out-alt me-2"></i> Cerrar Sesión
+                </a>
+            </li>
+        </ul>
+    </div>
+</div>
+</nav>
     <!-- Sidebar -->
     <div id="sidebar">
         <button class="sidebar-toggle" onclick="toggleSidebar()">
@@ -202,44 +393,215 @@
         </button>
 
         <div class="sidebar-header">
-            <h4><i class="fas fa-chart-line me-2"></i>ERP Multi-Tenant</h4>
+            <h4><i class="fas fa-chart-line me-2"></i>ERP</h4>
         </div>
 
         <nav class="nav flex-column py-2">
-            <a href="{{ url_for('dashboard.index') }}" class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+            <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
                 <i class="fas fa-tachometer-alt"></i>
                 <span>Dashboard</span>
             </a>
-
-            {% if g.rango <= 2 %}
-            <div class="mt-3 px-3 text-white-50 small text-uppercase">Administración</div>
-            
-            <a href="{{ url_for('admin.config_contratante') }}" class="nav-link {% if request.endpoint == 'admin.config_contratante' %}active{% endif %}">
-                <i class="fas fa-building"></i>
-                <span>Contratante</span>
+            <a href="{{ url_for('perfil_grupo') }}" class="nav-link ps-5 small">
+                <i class="fas fa-sitemap me-1"></i> Perfil del Grupo
             </a>
+            <div class="mt-3 px-3 text-white-50 small text-uppercase">Módulos</div>
 
-            <a href="{{ url_for('admin.config_empresas') }}" class="nav-link {% if request.endpoint == 'admin.config_empresas' %}active{% endif %}">
-                <i class="fas fa-sitemap"></i>
-                <span>Empresas</span>
-            </a>
-
-            <a href="{{ url_for('admin.config_modulos') }}" class="nav-link {% if request.endpoint == 'admin.config_modulos' %}active{% endif %}">
-                <i class="fas fa-th-large"></i>
-                <span>Módulos</span>
-            </a>
-
-            <a href="{{ url_for('admin.config_usuarios') }}" class="nav-link {% if request.endpoint == 'admin.config_usuarios' %}active{% endif %}">
-                <i class="fas fa-users"></i>
-                <span>Usuarios</span>
-            </a>
+            <!-- ADMINISTRACIÓN -->
+            {% if g.rol == 'admin' %}
+            <div class="accordion accordion-flush">
+                <div class="accordion-item bg-transparent border-0">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button {% if request.path.startswith('/admin') or request.path.startswith('/gestionar_logos') or request.path.startswith('/configurar_inventarios') %}{% else %}collapsed{% endif %} {% if request.path.startswith('/admin') or request.path.startswith('/gestionar_logos') or request.path.startswith('/configurar_inventarios') %}bg-primary{% else %}bg-transparent{% endif %} text-white border-0 px-3 py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdmin">
+                            <i class="fas fa-cog me-2"></i> Administración
+                        </button>
+                    </h2>
+                    <div id="collapseAdmin" class="accordion-collapse collapse {% if request.path.startswith('/admin') or request.path.startswith('/gestionar_logos') or request.path.startswith('/configurar_inventarios') %}show{% endif %}">
+                        <div class="accordion-body p-0">
+                            <a href="{{ url_for('gestionar_logos_empresas') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-image"></i> Logos de Empresas
+                            </a>
+                            <a href="{{ url_for('admin_gestion_usuarios') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-users"></i> Usuarios
+                            </a>
+                            <a href="{{ url_for('configurar_inventarios') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-sliders-h"></i> Config. Inventarios
+                            </a>
+                            <a href="{{ url_for('admin_listar_empresas') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-building"></i> Empresas del Grupo
+                            </a>
+                            <a href="{{ url_for('listar_areas') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-map-marker-alt"></i> Áreas de Producción 
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
             {% endif %}
+            <!-- COMPRAS -->
+            {% if 'compras' in g.modulos_permitidos or g.rol == 'admin' %}
+            <div class="accordion accordion-flush">
+                <div class="accordion-item bg-transparent border-0">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button {% if request.path.startswith('/compras') or request.path.startswith('/nueva_compra') or request.path.startswith('/listado_compras') or request.path.startswith('/proveedores') or request.path.startswith('/ordenes_auto') %}{% else %}collapsed{% endif %} {% if request.path.startswith('/compras') or request.path.startswith('/nueva_compra') or request.path.startswith('/listado_compras') or request.path.startswith('/proveedores') or request.path.startswith('/ordenes_auto') %}bg-primary{% else %}bg-transparent{% endif %} text-white border-0 px-3 py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCompras">
+                            <i class="fas fa-shopping-cart me-2"></i> Compras
+                        </button>
+                    </h2>
+                    <div id="collapseCompras" class="accordion-collapse collapse {% if request.path.startswith('/compras') or request.path.startswith('/nueva_compra') or request.path.startswith('/listado_compras') or request.path.startswith('/proveedores') or request.path.startswith('/ordenes_auto') %}show{% endif %}">
+                        <div class="accordion-body p-0">
+                            <a href="{{ url_for('nueva_compra') }}" class="nav-link ps-5 small">Nueva Compra</a>
+                            <a href="{{ url_for('listado_compras') }}" class="nav-link ps-5 small">Historial</a>
+                            <a href="{{ url_for('proveedores') }}" class="nav-link ps-5 small">Proveedores</a>
+                            <a href="{{ url_for('ordenes_auto_lista') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-robot"></i> Órdenes Automáticas
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+           <!-- VENTAS -->
+            {% if 'ventas' in g.modulos_permitidos or g.rol == 'admin' %}
+            <div class="accordion accordion-flush">
+                <div class="accordion-item bg-transparent border-0">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button {% if request.path.startswith('/caja') or request.path.startswith('/historial_tickets') or request.path.startswith('/facturacion/b2b') %}{% else %}collapsed{% endif %} {% if request.path.startswith('/caja') or request.path.startswith('/historial_tickets') or request.path.startswith('/facturacion/b2b') %}bg-primary{% else %}bg-transparent{% endif %} text-white border-0 px-3 py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseVentas">
+                            <i class="fas fa-cash-register me-2"></i> Ingresos
+                        </button>
+                    </h2>
+                    <div id="collapseVentas" class="accordion-collapse collapse {% if request.path.startswith('/caja') or request.path.startswith('/historial_tickets') or request.path.startswith('/facturacion/b2b') %}show{% endif %}">
+                        <div class="accordion-body p-0">
+                            <a href="{{ url_for('caja') }}" class="nav-link ps-5 small">Punto de Venta</a>
+                            <a href="{{ url_for('historial_tickets') }}" class="nav-link ps-5 small">Historial Tickets</a>
+                            <a href="{{ url_for('facturacion_b2b_nueva') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-file-invoice-dollar me-1"></i> Nueva Factura B2B
+                            </a>
+                            <a href="{{ url_for('facturas_emitidas_b2b') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-file-export me-1"></i> Facturas Emitidas
+                            </a>
+                            <a href="{{ url_for('facturas_recibidas_b2b') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-file-import me-1"></i> Facturas Recibidas
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            <!-- INVENTARIO -->
+            {% if 'inventario' in g.modulos_permitidos or g.rol == 'admin' %}
+            <div class="accordion accordion-flush">
+                <div class="accordion-item bg-transparent border-0">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button {% if request.path.startswith('/inventario') or request.path.startswith('/catalogo_mp') or request.path.startswith('/mercancia') or request.path.startswith('/productos_terminados') or request.path.startswith('/pt_catalogo') or request.path.startswith('/almacen') or request.path.startswith('/recetas_list') %}{% else %}collapsed{% endif %} {% if request.path.startswith('/inventario') or request.path.startswith('/catalogo_mp') or request.path.startswith('/mercancia') or request.path.startswith('/productos_terminados') or request.path.startswith('/pt_catalogo') or request.path.startswith('/almacen') or request.path.startswith('/recetas_list') %}bg-primary{% else %}bg-transparent{% endif %} text-white border-0 px-3 py-2" 
+                                type="button" data-bs-toggle="collapse" data-bs-target="#collapseInventario">
+                            <i class="fas fa-boxes me-2"></i> Inventario
+                        </button>
+                    </h2>
+                    <div id="collapseInventario" class="accordion-collapse collapse {% if request.path.startswith('/inventario') or request.path.startswith('/catalogo_mp') or request.path.startswith('/mercancia') or request.path.startswith('/productos_terminados') or request.path.startswith('/pt_catalogo') or request.path.startswith('/almacen') or request.path.startswith('/recetas_list') %}show{% endif %}">
+                        <div class="accordion-body p-0">
+                            
+                            <!-- MATERIA PRIMA (MP) -->
+                            <div class="ps-4 pt-2 pb-1">
+                                <small class="text-muted text-uppercase fw-bold" style="font-size: 0.7rem;">
+                                    <i class="fas fa-box"></i> Materia Prima
+                                </small>
+                            </div>
+                            <a href="{{ url_for('mostrar_inventario_mp') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-list"></i> Inventario MP
+                            </a>
+                            <a href="{{ url_for('catalogo_mp') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-book"></i> Catálogo MP
+                            </a>
+                            <a href="{{ url_for('mercancia') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-database"></i> Mercancía
+                            </a>
+                                                     
+                            
+                            <!-- SEPARADOR -->
+                            <hr class="my-2 mx-4 border-secondary opacity-25">
+
+                            <!-- WORK IN PROGRESS (WIP) -->
+                            <div class="ps-4 pt-1 pb-1">
+                                <small class="text-muted text-uppercase fw-bold" style="font-size: 0.7rem;">
+                                    <i class="fas fa-cogs"></i> Work In Progress
+                                </small>
+                            </div>
+                            <a href="{{ url_for('mostrar_inventario_wip') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-spinner"></i> Inventario WIP
+                            </a>
+                            <a href="{{ url_for('recetas_list') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-tasks"></i> Receta
+                            </a>
+                            <!-- SEPARADOR -->
+                            <hr class="my-2 mx-4 border-secondary opacity-25">
+                            <!-- PRODUCTOS TERMINADOS (PT) -->
+                            <div class="ps-4 pt-1 pb-1">
+                                <small class="text-muted text-uppercase fw-bold" style="font-size: 0.7rem;">
+                                    <i class="fas fa-cubes"></i> Productos Terminados
+                                </small>
+                            </div>
+                            <a href="{{ url_for('inventario_pt_view') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-list"></i> Inventario PT
+                            </a>
+                            <a href="{{ url_for('pt_catalogo') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-tags"></i> Catálogo PT
+                            </a>                          
+                            <a href="{{ url_for('productos_terminados') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-archive"></i> Catalogo Prod Terminados
+                            </a>   
+                            <!-- SEPARADOR -->
+                            <hr class="my-2 mx-4 border-secondary opacity-25">
+
+                            <!-- ALMACÉN FÍSICO -->
+                            <div class="ps-4 pt-1 pb-1">
+                                <small class="text-muted text-uppercase fw-bold" style="font-size: 0.7rem;">
+                                    <i class="fas fa-warehouse"></i> Almacén Físico
+                                </small>
+                            </div>
+                            <a href="{{ url_for('almacen_recepciones') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-truck-loading"></i> Recepción Almacén
+                            </a>
+                            <a href="{{ url_for('almacen_configuracion') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-map-marked-alt"></i> Config. Almacenes
+                            </a>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            <!-- PRODUCCIÓN -->
+            {% if 'produccion' in g.modulos_permitidos or g.rol == 'admin' %}
+            <div class="accordion accordion-flush">
+                <div class="accordion-item bg-transparent border-0">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button {% if request.path.startswith('/inventarios/ordenes') or request.path.startswith('/inventarios/procesos') or request.path.startswith('/wip') or request.path.startswith('/areas') %}{% else %}collapsed{% endif %} {% if request.path.startswith('/inventarios/ordenes') or request.path.startswith('/inventarios/procesos') or request.path.startswith('/wip') or request.path.startswith('/areas') %}bg-primary{% else %}bg-transparent{% endif %} text-white border-0 px-3 py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseProduccion">
+                            <i class="fas fa-industry me-2"></i> Producción
+                        </button>
+                    </h2>
+                    <div id="collapseProduccion" class="accordion-collapse collapse {% if request.path.startswith('/inventarios/ordenes') or request.path.startswith('/inventarios/procesos') or request.path.startswith('/wip') or request.path.startswith('/areas') %}show{% endif %}">
+                        <div class="accordion-body p-0">
+                            <a href="{{ url_for('wip.ordenes_list') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-clipboard-list"></i> Órdenes
+                            </a>
+                            <a href="{{ url_for('wip.orden_nueva') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-plus"></i> Nueva Orden
+                            </a>
+                            <a href="{{ url_for('wip.procesos_list') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-project-diagram"></i> Procesos
+                            </a>
+                            
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
         </nav>
 
         <div class="user-info">
             <div class="small text-white-50">Sesión activa</div>
             <div class="fw-bold">{{ g.usuario_nombre }}</div>
-            <div class="small">Rango: {{ g.rango }}</div>
+            <div class="small">{{ g.contratante_nombre }}</div>
         </div>
     </div>
 
@@ -263,15 +625,120 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    
     <script>
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('collapsed');
-            const icon = document.querySelector('.sidebar-toggle i');
-            icon.classList.toggle('fa-chevron-left');
-            icon.classList.toggle('fa-chevron-right');
+        }
+
+        // Mobile sidebar toggle
+        const mediaQuery = window.matchMedia('(max-width: 768px)');
+        if (mediaQuery.matches) {
+            document.getElementById('sidebar').classList.add('collapsed');
         }
     </script>
+    
+    <!-- Dashboard Navigation Script -->
+    <script>
+    (function() {
+        'use strict';
+        
+        console.log('🚀 [DASHBOARD] Script iniciando...');
+        
+        // Esperar a que el DOM esté listo
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+        
+        function init() {
+            console.log('📋 [DASHBOARD] DOM listo...');
+            
+            // Auto-abrir el menú si estamos en un dashboard
+            autoOpenMenuOnDashboard();
+            
+            // Configurar navegación a dashboards
+            setupDashboardNavigation();
+        }
+        
+        function autoOpenMenuOnDashboard() {
+            const currentPath = window.location.pathname;
+            
+            // Mapeo de rutas a collapse IDs
+            const pathToCollapse = {
+                '/dashboard/administracion': 'collapseAdmin',
+                '/dashboard/compras': 'collapseCompras',
+                '/dashboard/ventas': 'collapseVentas',
+                '/dashboard/inventario': 'collapseInventario',
+                '/dashboard/produccion': 'collapseProduccion'
+            };
+            
+            const collapseId = pathToCollapse[currentPath];
+            
+            if (collapseId) {
+                console.log('✅ [DASHBOARD] Detectado dashboard:', currentPath);
+                console.log('📂 [DASHBOARD] Auto-abriendo menú:', collapseId);
+                
+                // Obtener el collapse
+                const collapse = document.getElementById(collapseId);
+                
+                if (collapse) {
+                    // Usar Bootstrap para abrir el collapse
+                    const bsCollapse = new bootstrap.Collapse(collapse, {
+                        toggle: false
+                    });
+                    bsCollapse.show();
+                    
+                    console.log('✨ [DASHBOARD] Menú abierto automáticamente');
+                }
+            }
+        }
+        
+        function setupDashboardNavigation() {
+            // Mapeo de módulos a sus URLs de dashboard
+            const dashboardUrls = {
+                'collapseAdmin': '/dashboard/administracion',
+                'collapseCompras': '/dashboard/compras',
+                'collapseVentas': '/dashboard/ventas',
+                'collapseInventario': '/dashboard/inventario',
+                'collapseProduccion': '/dashboard/produccion'
+            };
+            
+            // Para cada módulo, interceptar el clic
+            Object.keys(dashboardUrls).forEach(function(collapseId) {
+                const dashboardUrl = dashboardUrls[collapseId];
+                
+                // Buscar el botón del accordion
+                const accordionButton = document.querySelector('[data-bs-target="#' + collapseId + '"]');
+                
+                if (accordionButton) {
+                    console.log('✅ [DASHBOARD] Configurando:', collapseId);
+                    
+                    // Agregar evento de clic
+                    accordionButton.addEventListener('click', function(e) {
+                        // NO prevenir el comportamiento del accordion
+                        // Solo agregar navegación
+                        
+                        console.log('🔗 [DASHBOARD] Navegando a:', dashboardUrl);
+                        
+                        // Pequeño delay para que el accordion empiece a abrirse
+                        setTimeout(function() {
+                            window.location.href = dashboardUrl;
+                        }, 100);
+                    });
+                    
+                    console.log('✨ [DASHBOARD] Navegación configurada:', collapseId, '→', dashboardUrl);
+                } else {
+                    console.log('❌ [DASHBOARD] Botón NO encontrado:', collapseId);
+                }
+            });
+            
+            console.log('🎉 [DASHBOARD] Configuración completada!');
+        }
+    })();
+    </script>
+    
     {% block extra_js %}{% endblock %}
 </body>
 </html>

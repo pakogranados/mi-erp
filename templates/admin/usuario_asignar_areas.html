@@ -1,4 +1,4 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 
 {% block title %}Áreas de {{ usuario.nombre }} - ERP{% endblock %}
 
@@ -10,14 +10,21 @@
             <h1 class="h2 mb-1 fw-bold">
                 <i class="fas fa-user-cog text-primary"></i> {{ usuario.nombre }}
             </h1>
-            <p class="text-muted mb-0">Asignar áreas de trabajo</p>
+            <p class="text-muted mb-0">Asignar áreas de trabajo y niveles de acceso</p>
         </div>
+        {% if request.args.get('return_to') %}
+        <a href="{{ request.args.get('return_to') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver al Proceso
+        </a>
+        {% else %}
         <a href="{{ url_for('admin_usuario_areas') }}" class="btn btn-outline-secondary">
             <i class="fas fa-arrow-left"></i> Volver
         </a>
+        {% endif %}
     </div>
 
-    <form method="POST">
+    <form method="POST" action="{{ url_for('admin_usuario_asignar_areas', usuario_id=usuario.id) }}">
+        <input type="hidden" name="return_to" value="{{ request.args.get('return_to', '') }}">
         <div class="row">
             {% for area in areas %}
             <div class="col-md-6 col-lg-4 mb-3">
@@ -25,7 +32,7 @@
                     <div class="card-header d-flex justify-content-between align-items-center py-2"
                          style="background-color: {{ area.color }}20;">
                         <div class="form-check">
-                            <input type="checkbox" name="area_id[]" value="{{ area.id }}" 
+                            <input type="checkbox" name="area_id[]" value="{{ area.id }}"
                                    class="form-check-input area-check" id="area_{{ area.id }}"
                                    {% if area.asignada %}checked{% endif %}>
                             <label class="form-check-label fw-bold" for="area_{{ area.id }}">
@@ -39,24 +46,65 @@
                     </div>
                     <div class="card-body py-2">
                         <p class="text-muted small mb-2">{{ area.descripcion }}</p>
-                        
+
                         <div class="row g-2">
-                            <div class="col-8">
-                                <label class="form-label small mb-1">Rol:</label>
+                            <div class="col-12">
+                                <label class="form-label small mb-1">Nivel de acceso:</label>
                                 <select name="rol_{{ area.id }}" class="form-select form-select-sm">
-                                    <option value="operador" {% if area.rol_area == 'operador' %}selected{% endif %}>Operador</option>
-                                    <option value="supervisor" {% if area.rol_area == 'supervisor' %}selected{% endif %}>Supervisor</option>
-                                    <option value="responsable" {% if area.rol_area == 'responsable' %}selected{% endif %}>Responsable</option>
-                                    <option value="consulta" {% if area.rol_area == 'consulta' %}selected{% endif %}>Consulta</option>
+                                    <option value="consulta" {% if area.rol_area == 'consulta' %}selected{% endif %}>
+                                        👁️ Lector — Solo consulta
+                                    </option>
+                                    <option value="operador" {% if area.rol_area == 'operador' or not area.rol_area %}selected{% endif %}>
+                                        ⚙️ Operador — Puede operar
+                                    </option>
+                                    <option value="supervisor" {% if area.rol_area == 'supervisor' %}selected{% endif %}>
+                                        👔 Supervisor — Opera y supervisa
+                                    </option>
+                                    <option value="responsable" {% if area.rol_area == 'responsable' %}selected{% endif %}>
+                                        🔑 Responsable — Control total
+                                    </option>
                                 </select>
                             </div>
-                            <div class="col-4 d-flex align-items-end">
-                                <div class="form-check">
-                                    <input type="checkbox" name="autorizar_{{ area.id }}" value="1" 
+                        </div>
+
+                        <div class="row g-2 mt-1">
+                            <div class="col-6">
+                                <div class="form-check form-switch">
+                                    <input type="checkbox" name="puede_editar_{{ area.id }}" value="1"
+                                           class="form-check-input" id="editar_{{ area.id }}"
+                                           {% if area.puede_editar %}checked{% endif %}>
+                                    <label class="form-check-label small" for="editar_{{ area.id }}">
+                                        ✏️ Puede editar
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check form-switch">
+                                    <input type="checkbox" name="puede_eliminar_{{ area.id }}" value="1"
+                                           class="form-check-input" id="eliminar_{{ area.id }}"
+                                           {% if area.puede_eliminar %}checked{% endif %}>
+                                    <label class="form-check-label small" for="eliminar_{{ area.id }}">
+                                        🗑️ Puede eliminar
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check form-switch">
+                                    <input type="checkbox" name="autorizar_{{ area.id }}" value="1"
                                            class="form-check-input" id="auth_{{ area.id }}"
                                            {% if area.puede_autorizar %}checked{% endif %}>
                                     <label class="form-check-label small" for="auth_{{ area.id }}">
-                                        Autorizar
+                                        ✅ Puede autorizar
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check form-switch">
+                                    <input type="checkbox" name="notificar_{{ area.id }}" value="1"
+                                           class="form-check-input" id="notif_{{ area.id }}"
+                                           {% if area.notificar_alertas %}checked{% endif %}>
+                                    <label class="form-check-label small" for="notif_{{ area.id }}">
+                                        🔔 Notificaciones
                                     </label>
                                 </div>
                             </div>
@@ -106,5 +154,36 @@ document.querySelectorAll('.area-check').forEach(cb => {
 });
 
 updateCount();
+
+// Popup modo asignación rápida
+const returnTo = new URLSearchParams(window.location.search).get('return_to');
+if (returnTo) {
+    function mostrarPopupAsignacion() {
+        if (!document.getElementById('popupAsignacion')) {
+            const popup = document.createElement('div');
+            popup.id = 'popupAsignacion';
+            popup.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;max-width:350px;';
+            popup.innerHTML = `
+                <div class="alert alert-info shadow-lg border-0">
+                    <div class="d-flex align-items-start gap-2">
+                        <i class="fas fa-info-circle fa-lg mt-1 text-primary"></i>
+                        <div>
+                            <strong>Modo asignación rápida</strong>
+                            <p class="mb-2 small">Selecciona las áreas para este usuario y guarda. Regresarás automáticamente al proceso.</p>
+                            <div class="d-flex gap-2">
+                                <button onclick="document.getElementById('popupAsignacion').remove()"
+                                        class="btn btn-sm btn-primary">Entendido</button>
+                                <button onclick="document.getElementById('popupAsignacion').remove(); setTimeout(mostrarPopupAsignacion, 500)"
+                                        class="btn btn-sm btn-outline-secondary">Recordar de nuevo</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(popup);
+        }
+    }
+    mostrarPopupAsignacion();
+}
 </script>
 {% endblock %}

@@ -1,0 +1,148 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="page-title mb-0">
+            <i class="fas fa-plus"></i> Nuevo Almacén
+        </h2>
+        <a href="{{ url_for('almacen_configuracion') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Información del Almacén</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="row">
+                            <div class="col-md-8 mb-3">
+                                <label class="form-label">Nombre del Almacén <span class="text-danger">*</span></label>
+                                <input type="text" name="nombre" class="form-control" required
+                                       placeholder="Ej: Bodega Principal">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Código</label>
+                                <input type="text" name="codigo" class="form-control"
+                                       placeholder="Ej: BOD-01">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Tipo de Almacén</label>
+                            <select name="tipo" class="form-select">
+                                <option value="bodega">Bodega</option>
+                                <option value="cuarto_frio">Cuarto Frío</option>
+                                <option value="area_produccion">Área de Producción</option>
+                                <option value="otro">Otro</option>
+                            </select>
+                        </div>
+
+                        <hr>
+                        <h6 class="mb-3"><i class="fas fa-ruler-combined"></i> Dimensiones Físicas</h6>
+
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Ancho (metros)</label>
+                                <input type="number" name="ancho" id="ancho" class="form-control" 
+                                    step="0.1" min="0" placeholder="3.0" onchange="calcularCuadricula()">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Largo (metros)</label>
+                                <input type="number" name="largo" id="largo" class="form-control" 
+                                    step="0.1" min="0" placeholder="3.0" onchange="calcularCuadricula()">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Alto (metros)</label>
+                                <input type="number" name="alto" class="form-control" 
+                                    step="0.1" min="0" placeholder="3.0">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Tamaño Cuadrante (m)</label>
+                                <input type="number" name="tamano_cuadrante" id="tamano_cuadrante" class="form-control" 
+                                    step="0.1" min="0.5" value="1.0" onchange="calcularCuadricula()">
+                                <small class="text-muted">1m × 1m recomendado</small>
+                            </div>
+                        </div>
+
+                        <!-- Preview de cuadrícula -->
+                        <div class="mb-3">
+                            <label class="form-label">Vista Previa de Cuadrícula</label>
+                            <div id="preview-grid" class="border rounded p-3 bg-light text-center">
+                                <small class="text-muted">Ingresa las dimensiones para ver la cuadrícula</small>
+                            </div>
+                        </div>
+
+                        
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Descripción</label>
+                            <textarea name="descripcion" class="form-control" rows="3"
+                                      placeholder="Describe las características del almacén..."></textarea>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-save"></i> Crear Almacén
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card bg-light">
+                <div class="card-body">
+                    <h6 class="mb-3"><i class="fas fa-info-circle text-primary"></i> Pasos siguientes</h6>
+                    <ol class="small">
+                        <li class="mb-2">Crea el almacén con sus dimensiones</li>
+                        <li class="mb-2">Agrega elementos (mesas, repisas, racks)</li>
+                        <li class="mb-2">El sistema generará ubicaciones automáticamente</li>
+                        <li class="mb-2">Visualiza el mapa 2D de tu almacén</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script>
+function calcularCuadricula() {
+    const ancho = parseFloat(document.getElementById('ancho').value) || 0;
+    const largo = parseFloat(document.getElementById('largo').value) || 0;
+    const tamano = parseFloat(document.getElementById('tamano_cuadrante').value) || 1;
+                            
+    if (ancho === 0 || largo === 0) {
+        document.getElementById('preview-grid').innerHTML = 
+            '<small class="text-muted">Ingresa las dimensiones para ver la cuadrícula</small>';
+        return;
+    }
+                            
+    const columnas = Math.ceil(ancho / tamano);
+    const filas = Math.ceil(largo / tamano);
+                            
+    let html = `<div class="mb-2"><strong>Cuadrícula: ${filas} filas × ${columnas} columnas</strong></div>`;
+    html += '<div style="display: inline-block; border: 2px solid #2c3e50;">';
+                            
+    for (let f = 0; f < filas; f++) {
+        const fila = String.fromCharCode(65 + f); // A, B, C...
+        html += '<div style="display: flex;">';
+        for (let c = 1; c <= columnas; c++) {
+            html += `<div style="width: 40px; height: 40px; border: 1px solid #bdc3c7; 
+                    display: flex; align-items: center; justify-content: center; 
+                    font-size: 10px; background: white;">
+                    ${fila}${c}</div>`;
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+                            
+    document.getElementById('preview-grid').innerHTML = html;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seleccionar Empresa - ERP</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 2rem 0;
+        }
+        
+        .empresa-option {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .empresa-option input[type="radio"] {
+            display: none;
+        }
+        
+        .empresa-circle {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            border: 5px solid rgba(255,255,255,0.2);
+            margin: 0 auto 1.5rem;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        
+        .empresa-option:hover .empresa-circle {
+            transform: scale(1.1);
+            border-color: rgba(255,255,255,0.5);
+            box-shadow: 0 10px 40px rgba(102,126,234,0.5);
+        }
+        
+        .empresa-option input[type="radio"]:checked ~ .empresa-circle {
+            border-color: #00ff88;
+            border-width: 6px;
+            box-shadow: 0 0 0 3px rgba(0,255,136,0.3), 0 10px 40px rgba(102,126,234,0.5);
+        }
+        
+        .empresa-option input[type="radio"]:checked ~ .empresa-info .empresa-name {
+            color: #00ff88;
+        }
+        
+        .empresa-circle img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .empresa-circle .icon-placeholder {
+            font-size: 5rem;
+            color: white;
+        }
+        
+        .empresa-circle .check-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,255,136,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .empresa-option input[type="radio"]:checked ~ .empresa-circle .check-overlay {
+            opacity: 1;
+        }
+        
+        .check-overlay i {
+            font-size: 4rem;
+            color: white;
+        }
+        
+        .empresa-name {
+            color: white;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            transition: color 0.3s ease;
+        }
+        
+        .empresa-stats {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 0.75rem 1.5rem;
+            border-radius: 50px;
+            display: inline-block;
+            color: rgba(255,255,255,0.9);
+            font-size: 0.9rem;
+        }
+        
+        .header-title {
+            color: white;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+        
+        .header-title h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        
+        .header-title p {
+            color: rgba(255,255,255,0.7);
+            font-size: 1.1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header-title">
+            <h1>
+                <i class="fas fa-building"></i> Mis Empresas
+            </h1>
+            <p>Selecciona tu espacio de trabajo</p>
+        </div>
+
+        <!-- Form -->
+        <form method="POST" id="empresaForm">
+            <div class="row g-5 justify-content-center">
+                {% for empresa in empresas %}
+                <div class="col-lg-4 col-md-6">
+                    <label class="empresa-option text-center">
+                        <input type="radio" name="empresa_id" value="{{ empresa.empresa_id }}" required onchange="this.form.submit()">
+                        
+                        <!-- Circle Logo -->
+                        <div class="empresa-circle">
+                            {% if empresa.get('logo_url') %}
+                                <img src="{{ empresa.logo_url }}" alt="{{ empresa.empresa_nombre }}">
+                            {% else %}
+                                <i class="fas fa-store icon-placeholder"></i>
+                            {% endif %}
+                            
+                            <div class="check-overlay">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                        </div>
+                        
+                        <!-- Info -->
+                        <div class="empresa-info">
+                            <div class="empresa-name">{{ empresa.empresa_nombre }}</div>
+                            
+                            <div class="empresa-stats">
+                                <i class="fas fa-boxes"></i> 
+                                {{ empresa.get('total_productos', 0) }} productos
+                            </div>
+                            
+                            {% if empresa.get('contratante_nombre') %}
+                            <div class="mt-2">
+                                <small class="text-white-50">
+                                    <i class="fas fa-building"></i> 
+                                    {{ empresa.contratante_nombre }}
+                                </small>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+        </form>
+
+        <!-- Logout -->
+        <div class="text-center mt-5 pt-4">
+            <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-lg">
+                <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+            </a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+  <h2 class="page-title">Orden de Compra Automática - {{ orden.folio }}</h2>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- Encabezado de la orden -->
+  <div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+      <h5 class="mb-0">Información de la Orden</h5>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-3">
+          <p class="mb-2"><strong>Folio:</strong></p>
+          <p class="text-muted">{{ orden.folio }}</p>
+        </div>
+        <div class="col-md-3">
+          <p class="mb-2"><strong>Fecha Generación:</strong></p>
+          <p class="text-muted">{{ orden.fecha_generacion_fmt }}</p>
+        </div>
+        <div class="col-md-2">
+          <p class="mb-2"><strong>Estado:</strong></p>
+          {% if orden.estado == 'pendiente_revision' %}
+            <span class="badge bg-warning">Pendiente Revisión</span>
+          {% elif orden.estado == 'aprobada' %}
+            <span class="badge bg-success">Aprobada</span>
+          {% elif orden.estado == 'rechazada' %}
+            <span class="badge bg-danger">Rechazada</span>
+          {% endif %}
+        </div>
+        <div class="col-md-2">
+          <p class="mb-2"><strong>Solicitado por:</strong></p>
+          <p class="text-muted">{{ orden.solicitado_por }}</p>
+        </div>
+      </div>
+
+      {% if orden.aprobado_por_nombre %}
+      <hr>
+      <div class="row">
+        <div class="col-md-4">
+          <p class="mb-2"><strong>Aprobado por:</strong></p>
+          <p class="text-muted">{{ orden.aprobado_por_nombre }}</p>
+        </div>
+        <div class="col-md-4">
+          <p class="mb-2"><strong>Fecha Aprobación:</strong></p>
+          <p class="text-muted">{{ orden.fecha_aprobacion }}</p>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Detalle de productos -->
+  <h4 class="mb-3">Productos Solicitados</h4>
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width:50px;">Prior.</th>
+          <th style="width:200px;">Materia Prima</th>
+          <th style="width:200px;">Presentación de Compra</th>
+          <th style="width:100px;">Unidad</th>
+          <th class="text-end" style="width:100px;">Stock Actual</th>
+          <th class="text-end" style="width:100px;">Mínimo</th>
+          <th class="text-end" style="width:100px;">Máximo</th>
+          <th class="text-end" style="width:120px;">Cant. Solicitada</th>
+          <th style="width:150px;">Criterio</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in detalles %}
+        <tr>
+          <td class="text-center">
+            {% if d.criterio == 'mp_bajo_minimo' %}
+              <span class="badge bg-danger">🔴 Alta</span>
+            {% elif d.criterio == 'mp_punto_reorden' %}
+              <span class="badge bg-warning">🟡 Media</span>
+            {% else %}
+              <span class="badge bg-secondary">⚪ Baja</span>
+            {% endif %}
+          </td>
+          <td><strong>{{ d.materia_prima }}</strong></td>
+          <td class="text-muted small">{{ d.presentacion_compra or '—' }}</td>
+          <td class="text-muted small">{{ d.unidad or '—' }}</td>
+          <td class="text-end">
+            <span class="{% if d.stock_actual < d.stock_minimo %}text-danger fw-bold{% endif %}">
+              {{ "%.2f"|format(d.stock_actual) }}
+            </span>
+          </td>
+          <td class="text-end text-muted">{{ "%.2f"|format(d.stock_minimo) }}</td>
+          <td class="text-end text-muted">{{ "%.2f"|format(d.stock_maximo) }}</td>
+          <td class="text-end">
+            <strong>{{ "%.2f"|format(d.cantidad_solicitada) }}</strong>
+          </td>
+          <td>
+            {% if d.criterio == 'mp_bajo_minimo' %}
+              <span class="text-danger small">Bajo mínimo</span>
+            {% elif d.criterio == 'mp_punto_reorden' %}
+              <span class="text-warning small">Punto de reorden</span>
+            {% else %}
+              <span class="text-muted small">{{ d.criterio }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Botones de acción -->
+  <div class="d-flex justify-content-between mt-4">
+    <a href="{{ url_for('ordenes_auto_lista') }}" class="btn btn-secondary">
+      <i class="fas fa-arrow-left"></i> Volver al Listado
+    </a>
+
+    {% if orden.estado == 'pendiente_revision' %}
+    <div>
+      <form method="POST" action="{{ url_for('ordenes_auto_aprobar', orden_id=orden.id) }}" 
+            class="d-inline"
+            onsubmit="return confirm('¿Aprobar esta orden de compra automática?');">
+        <button type="submit" class="btn btn-success btn-lg">
+          <i class="fas fa-check"></i> Aprobar Orden
+        </button>
+      </form>
+    </div>
+    {% elif orden.estado == 'aprobada' %}
+    <a href="{{ url_for('nueva_compra') }}" class="btn btn-primary btn-lg">
+      <i class="fas fa-shopping-cart"></i> Convertir en Compra Real
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

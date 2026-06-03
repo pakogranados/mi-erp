@@ -1,23 +1,244 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 {% block content %}
 <style>
-  .pos-wrap{display:grid;grid-template-columns:1.2fr 1.2fr 0.9fr;gap:12px}
-  .pos-panel{background:#fff;border:1px solid #ddd;border-radius:8px}
-  .pos-head{padding:10px 12px;border-bottom:1px solid #eee;font-weight:600}
-  .pos-body{padding:12px}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-  .tile{padding:10px;border:1px solid #d8d8d8;border-radius:8px;text-align:center;cursor:pointer;font-weight:600}
+  body { overflow-y: auto; }
+  .pos-wrap{display:grid;grid-template-columns:1.2fr 1.2fr 0.9fr;gap:8px;margin-top:5px}
+  .pos-panel{background:#fff;border:1px solid #ddd;border-radius:6px}
+  .pos-head{padding:6px 10px;border-bottom:1px solid #eee;font-weight:600;font-size:14px}
+  .pos-body{padding:8px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .tile{padding:8px 4px;border:1px solid #d8d8d8;border-radius:6px;text-align:center;cursor:pointer;font-weight:600;font-size:13px}
+  .tile .small{font-size:11px}
   .tile.active{outline:2px solid #3a8;}
-  .keypad{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-  .key{padding:14px;border:1px solid #d8d8d8;border-radius:8px;text-align:center;font-size:18px;cursor:pointer}
-  .btn-lgx{padding:12px;font-size:16px}
-  .tot-row{display:flex;justify-content:space-between;margin:6px 0}
-  .money-btns .btn{width:100%;margin-bottom:8px}
-  .cart-list{max-height:56vh;overflow:auto}
-  .currency-section{margin-bottom:16px;padding:12px;background:#f8f9fa;border-radius:6px}
-  .currency-title{font-size:13px;font-weight:600;color:#666;margin-bottom:8px}
-  .denomination-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+  .keypad{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .key{padding:10px;border:1px solid #d8d8d8;border-radius:6px;text-align:center;font-size:16px;cursor:pointer}
+  .btn-lgx{padding:8px;font-size:14px}
+  .tot-row{display:flex;justify-content:space-between;margin:4px 0;font-size:14px}
+  .money-btns .btn{width:100%;margin-bottom:6px}
+  .cart-list{max-height:48vh;overflow:auto}
+  .currency-section{margin-bottom:10px;padding:8px;background:#f8f9fa;border-radius:6px}
+  .currency-title{font-size:12px;font-weight:600;color:#666;margin-bottom:6px}
+  .denomination-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
+  .table-sm td, .table-sm th{padding:4px;font-size:13px}
+  .form-control-sm, .btn-sm{font-size:12px;padding:4px 8px}
+  .form-control{padding:6px 10px;font-size:14px}
+  .input-group-text{padding:6px 10px;font-size:14px}
+  
+ /* ... tus estilos existentes ... */
+  
+  /* Resaltar campo de cantidad */
+  .input-cant:focus {
+    outline: 3px solid #667eea;
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
+  }
+  
+  .input-cant {
+    font-size: 16px !important;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  /* TOTALES DESTACADOS - Compacto */
+  .totales-destacados {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 10px;
+    border-radius: 8px;
+    color: white;
+    box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+    margin: 8px 0;
+  }
+  .totales-destacados .tot-row {
+    font-weight: 700;
+    font-size: 14px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+  }
+  .totales-destacados .tot-row:last-child {
+    border-bottom: none;
+    font-size: 16px;
+    padding-top: 6px;
+  }
+  .totales-destacados .tot-row strong {
+    font-size: 15px;
+  }
+  
+  #btnProcederCobro{
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    box-shadow: 0 3px 10px rgba(102, 126, 234, 0.4);
+    transition: all 0.3s ease;
+    padding: 12px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  #btnProcederCobro:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.6);
+  }
+  
+  #btnConfirmarCobro{
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    border: none;
+    box-shadow: 0 3px 10px rgba(17, 153, 142, 0.4);
+    transition: all 0.3s ease;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 10px;
+  }
+  #btnConfirmarCobro:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(17, 153, 142, 0.6);
+  }
+  
+  /* Modal de cambio a la derecha */
+  #modalCambio .modal-dialog {
+    position: fixed;
+    right: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin: 0;
+    max-width: 450px;
+    width: 100%;
+  }
+  #modalCambio .modal-content {
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  }
+  #modalCambio.show {
+    background: rgba(0,0,0,0.3) !important;
+  }
+  
+  /* Compactar formularios */
+  .row.g-2{gap:4px !important}
+  .d-grid{margin-top:6px;margin-bottom:6px}
+  .mb-2{margin-bottom:6px !important}
+  .mb-3{margin-bottom:8px !important}
+  .mt-2{margin-top:6px !important}
+  .mt-3{margin-top:8px !important}
+  hr{margin:8px 0}
+  
+  /* ========================================
+     ESTILOS PARA BANNER DE TURNO
+     ======================================== */
+  .turno-info-banner {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .turno-info-banner .turno-datos {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  
+  .turno-info-banner .turno-estado {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  
+  .turno-info-banner .turno-estado.abierto {
+    background: #38ef7d;
+    color: #1a5928;
+  }
+  
+  .turno-info-banner .turno-estado.cerrado {
+    background: #999;
+    color: white;
+  }
+  
+  .turno-alerta-antiguo {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    box-shadow: 0 3px 10px rgba(255, 107, 107, 0.3);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-weight: 600;
+  }
+  
+  .turno-alerta-antiguo .icono {
+    font-size: 28px;
+    animation: pulse 1.5s infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+  }
+  
+  .sin-turno-banner {
+    background: linear-gradient(135deg, #ffa726 0%, #fb8c00 100%);
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    box-shadow: 0 3px 10px rgba(255, 167, 38, 0.3);
+    text-align: center;
+    font-weight: 600;
+  }
 </style>
+
+<!-- ========================================
+     BANNER DE INFORMACIÓN DE TURNO
+     ======================================== -->
+{% if turno_antiguo %}
+  <!-- Turno de días anteriores sin cerrar -->
+  <div class="turno-alerta-antiguo">
+    <div class="icono">⚠️</div>
+    <div>
+      <div style="font-size: 16px; margin-bottom: 5px;">ATENCIÓN: Turno antiguo sin cerrar</div>
+      <div style="font-size: 13px; opacity: 0.9;">
+        Tienes un turno abierto desde el {{ turno_actual.fecha_formato }} ({{ turno_actual.dias_abierto }} día(s) atrás).
+        Debes cerrarlo antes de continuar.
+      </div>
+    </div>
+  </div>
+{% elif not turno_actual %}
+  <!-- Sin turno abierto -->
+  <div class="sin-turno-banner">
+    ⚠️ No hay turno abierto. Debes abrir un turno para realizar ventas.
+  </div>
+{% endif %}
+
+<!-- BANNER DE INFORMACIÓN DE TURNO ACTUAL -->
+{% if turno_actual %}
+<div class="turno-info-banner">
+  <div class="turno-datos">
+    <div>
+      📅 <strong>Turno:</strong> {{ turno_actual.fecha_formato }}
+    </div>
+    <div>
+      🕐 <strong>Apertura:</strong> {{ turno_actual.hora_apertura }}
+    </div>
+    <div>
+      💵 <strong>Fondo inicial:</strong> ${{ "{:,.2f}".format(turno_actual.fondo_inicial) }}
+    </div>
+  </div>
+  <div>
+    <span class="turno-estado {{ turno_actual.estado }}">
+      {% if turno_actual.estado == 'abierto' %}
+        🟢 ABIERTO
+      {% else %}
+        🔴 CERRADO
+      {% endif %}
+    </span>
+  </div>
+</div>
+{% endif %}
 
 <div class="pos-wrap">
 
@@ -38,7 +259,7 @@
                 <td class="text-end">{{ "%.2f"|format(importe) }}</td>
                 <td class="text-end">
                   <form method="post" action="{{ url_for('caja_eliminar', idx=idx) }}">
-                    <button class="btn btn-sm btn-outline-danger">✕</button>
+                    <button class="btn btn-sm btn-outline-danger btn-eliminar">✕</button>
                   </form>
                 </td>
               </tr>
@@ -58,36 +279,40 @@
       </form>
 
       <hr>
-      <div class="tot-row">
-        <span>Sub Total</span>
-        <strong>${{ "%.2f"|format(totals.subtotal) }}</strong>
-      </div>
-      <div class="tot-row">
-        <span>IVA</span>
-        <strong>${{ "%.2f"|format(totals.iva) }}</strong>
-      </div>
-      <div class="tot-row" style="font-size:20px">
-        <span>Total</span>
-        <strong>${{ "%.2f"|format(totals.total) }}</strong>
-      </div>
-      <div class="tot-row">
-        <span>Cobro Pesos</span>
-        <strong id="cobroPesosSidebar">$0.00</strong>
-      </div>
-      <div class="tot-row">
-        <span>Cobro Dólares</span>
-        <strong id="cobroDolaresSidebar">$0.00 USD</strong>
-      </div>
-      <div class="tot-row" style="font-size:18px; border-top:2px solid #ddd; padding-top:8px; margin-top:8px;">
-        <span>Suma Cobro</span>
-        <strong id="sumaCobro">$0.00</strong>
-      </div>
-      <div class="tot-row" style="font-size:18px;">
-        <span>Cambio</span>
-        <strong id="cambioSidebar">$0.00</strong>
+      
+      <!-- TOTALES DESTACADOS -->
+      <div class="totales-destacados">
+        <div class="tot-row">
+          <span>Sub Total</span>
+          <strong>${{ "%.2f"|format(totals.subtotal) }}</strong>
+        </div>
+        <div class="tot-row">
+          <span>IVA</span>
+          <strong>${{ "%.2f"|format(totals.iva) }}</strong>
+        </div>
+        <div class="tot-row">
+          <span>Total</span>
+          <strong>${{ "%.2f"|format(totals.total) }}</strong>
+        </div>
+        <div class="tot-row">
+          <span>Cobro Pesos</span>
+          <strong id="cobroPesosSidebar">$0.00</strong>
+        </div>
+        <div class="tot-row">
+          <span>Cobro Dólares</span>
+          <strong id="cobroDolaresSidebar">$0.00 USD</strong>
+        </div>
+        <div class="tot-row">
+          <span>Suma Cobro</span>
+          <strong id="sumaCobro">$0.00</strong>
+        </div>
+        <div class="tot-row">
+          <span>Cambio</span>
+          <strong id="cambioSidebar">$0.00</strong>
+        </div>
       </div>
 
-      <div class="d-grid mt-3">
+      <div class="d-grid mt-2">
         <form method="post" action="{{ url_for('caja_cobrar') }}" id="frmCobrar">
           <input type="hidden" name="tipo" value="ticket">
           <input type="hidden" name="forma_pago" id="formaPagoField" value="Efectivo">
@@ -98,33 +323,33 @@
           </button>
         </form>
       </div>
+      
       <!-- Botones Cancelar / Hold -->
-      <div class="d-flex gap-2 mt-2">
+      <div class="d-flex gap-2 mt-1">
         <form method="post" action="{{ url_for('caja_vaciar') }}">
-          <button class="btn btn-outline-secondary btn-lgx" type="submit">Cancelar</button>
+          <button class="btn btn-outline-secondary btn-sm btn-cancelar" type="submit">Cancelar</button>
         </form>
         <form method="post" action="{{ url_for('caja_hold') }}">
-          <button class="btn btn-outline-dark btn-lgx" type="submit">Hold</button>
+          <button class="btn btn-outline-dark btn-sm" type="submit">Hold</button>
         </form>
       </div>
 
-<!-- Botón de Retiro -->
-<div class="d-grid mt-2">
-  <button type="button" class="btn btn-warning btn-lgx" data-bs-toggle="modal" data-bs-target="#modalRetiro">
-    💵 Retiro de Efectivo
-  </button>
-</div>
-<div class="d-grid mt-2">
-  <a href="{{ url_for('consumos_propios') }}" class="btn btn-outline-warning btn-lgx">
-    🍦 Consumos Propios
-  </a>
-
-</div>
-<div class="d-grid mt-2">
-  <a href="{{ url_for('cerrar_turno') }}" class="btn btn-danger btn-lgx">
-    🔒 Cerrar Turno
-  </a>
-</div>
+      <!-- Botón de Retiro -->
+      <div class="d-grid mt-1">
+        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#modalRetiro">
+          💵 Retiro de Efectivo
+        </button>
+      </div>
+      <div class="d-grid mt-1">
+        <a href="{{ url_for('consumos_propios') }}" class="btn btn-outline-warning btn-sm">
+          🍦 Consumos Propios
+        </a>
+      </div>
+      <div class="d-grid mt-1">
+        <a href="{{ url_for('cerrar_turno') }}" class="btn btn-danger btn-sm">
+          🔒 Cerrar Turno
+        </a>
+      </div>
 
       <!-- Ventas en espera -->
       {% if holds %}
@@ -148,9 +373,9 @@
     <div class="pos-head d-flex align-items-center justify-content-between">
       <div>Catálogo POS</div>
       <div class="d-flex gap-2">
-        <input id="busca" class="form-control form-control-sm" placeholder="Buscar botón" style="max-width:220px">
-        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="offcanvas" data-bs-target="#posSelector">
-          Elegir artículos
+        <input id="busca" class="form-control form-control-sm" placeholder="Buscar" style="max-width:180px">
+        <button class="btn btn-sm btn-outline-primary btn-elegir" data-bs-toggle="offcanvas" data-bs-target="#posSelector">
+          Elegir
         </button>
       </div>
     </div>
@@ -159,430 +384,416 @@
       <!-- Botones rápidos -->
       <div class="tiles mb-3" id="posTiles">
         {% for it in items_pos %}
-          <div class="tile"
+          <div class="tile tile-producto"
                data-id="{{ it.id }}"
-               data-name="{{ it.label }}"
-               data-price="{{ '%.2f'|format(it.precio) }}">
-            {{ it.label }}
-            <div class="small text-muted">${{ '%.2f'|format(it.precio) }}</div>
+               data-nombre="{{ it.nombre }}"
+               data-pu="{{ it.pu }}">
+            <div>{{ it.nombre }}</div>
+            <div class="small">${{ "%.2f"|format(it.pu) }}</div>
           </div>
-        {% else %}
-          <div class="text-muted">Pulsa "Elegir artículos" para seleccionar botones de venta.</div>
         {% endfor %}
       </div>
 
-      <!-- precio flexible + SKU -->
-      <div class="d-flex align-items-center mb-2">
-        <div class="input-group me-2" style="max-width:240px">
-          <span class="input-group-text">$</span>
-          <input id="precio" class="form-control" value="0.00">
-        </div>
-        <div class="ms-auto">
-          <span class="text-muted">Cantidad:</span>
-          <input id="cantidad" class="form-control d-inline-block" style="width:90px" value="" placeholder="1">
-        </div>
+      <!-- Teclado numérico -->
+      <div class="keypad">
+        <div class="key" data-key="7">7</div>
+        <div class="key" data-key="8">8</div>
+        <div class="key" data-key="9">9</div>
+        <div class="key" data-key="C" style="background:#ff8080">C</div>
+        
+        <div class="key" data-key="4">4</div>
+        <div class="key" data-key="5">5</div>
+        <div class="key" data-key="6">6</div>
+        <div class="key" data-key="←" style="background:#ffa;">←</div>
+        
+        <div class="key" data-key="1">1</div>
+        <div class="key" data-key="2">2</div>
+        <div class="key" data-key="3">3</div>
+        <div class="key" data-key="." rowspan="2">.</div>
+        
+        <div class="key" data-key="0" colspan="2" style="grid-column:span 2">0</div>
+        <div class="key" data-key="00">00</div>
       </div>
 
-
-      <!-- keypad -->
-      <div class="keypad mb-3" id="keypad">
-        {% for k in ["7","8","9","⌫","4","5","6","00","1","2","3",".","0","00","000","C"] %}
-          <div class="key" data-k="{{ k }}">{{ k }}</div>
-        {% endfor %}
+      <!-- Agregar rápido -->
+      <div class="mt-2 mb-2" style="padding:6px;background:#f9f9f9;border-radius:6px">
+        <div class="small text-muted mb-1" style="font-weight:600">Agregar rápido:</div>
+        <form method="post" action="{{ url_for('caja_agregar') }}">
+          <div class="d-flex gap-1 mb-2">
+            <input name="nombre" class="form-control form-control-sm input-nombre" placeholder="Producto" style="flex:1">
+            <input name="cant" class="form-control form-control-sm input-cant" placeholder="Cant" style="width:50px">
+            <input name="pu" class="form-control form-control-sm input-pu" placeholder="PU" style="width:70px">
+            <button class="btn btn-sm btn-primary btn-agregar">+</button>
+          </div>
+        </form>
       </div>
-
-      <!-- agregar rápido -->
-      <form class="row g-2" method="post" action="{{ url_for('caja_agregar') }}" id="frmAdd">
-        <input type="hidden" name="mercancia_id" id="mercancia_id">
-        <div class="col-7">
-          <input class="form-control" id="nombre" name="nombre" required>
-        </div>
-        <div class="col-2">
-          <input class="form-control" id="cantInput" name="cant" value="1">
-        </div>
-        <div class="col-3">
-          <input class="form-control" id="puInput" name="pu" value="0.00">
-        </div>
-        <input type="hidden" name="iva_rate" value="0.16">
-        <input type="hidden" name="desc" value="0">
-        <div class="col-12 d-grid">
-          <button class="btn btn-primary btn-lgx" type="submit">Añadir al carrito</button>
-        </div>
-      </form>
     </div>
   </div>
 
-  <!-- DER: PAGOS RÁPIDOS -->
+  <!-- DER: COBRO -->
   <div class="pos-panel">
-    <div class="pos-head">Pago</div>
+    <div class="pos-head">Cobro</div>
     <div class="pos-body">
       
-      <!-- PESOS MXN -->
-      <div class="currency-section">
-        <div class="currency-title">💵 PESOS MXN</div>
-        <div class="denomination-grid">
-          <button class="btn btn-light btn-sm" data-pay="20" type="button">$20</button>
-          <button class="btn btn-light btn-sm" data-pay="50" type="button">$50</button>
-          <button class="btn btn-light btn-sm" data-pay="100" type="button">$100</button>
-          <button class="btn btn-light btn-sm" data-pay="200" type="button">$200</button>
-          <button class="btn btn-light btn-sm" data-pay="500" type="button">$500</button>
-          <button class="btn btn-success btn-sm" id="btnExacto" type="button">
-            Exacto
-          </button>
-        </div>
-      </div>
-
-      <!-- DÓLARES USD -->
-      <div class="currency-section">
-        <div class="currency-title">💵 DÓLARES USD <span class="text-muted small">(TC: ${{ "%.2f"|format(tipo_cambio|default(20.0)) }})</span></div>
-        <div class="denomination-grid">
-          <button class="btn btn-light btn-sm" data-pay-usd="1" type="button">$1</button>
-          <button class="btn btn-light btn-sm" data-pay-usd="5" type="button">$5</button>
-          <button class="btn btn-light btn-sm" data-pay-usd="10" type="button">$10</button>
-          <button class="btn btn-light btn-sm" data-pay-usd="20" type="button">$20</button>
-        </div>
-      </div>
-
-      <hr>
-
-      <!-- Selector forma de pago principal -->
-      <div class="d-flex gap-2 mb-2">
-        <button type="button" class="btn btn-outline-success btn-lgx flex-fill" id="btnEfectivo">
-          Efectivo
-        </button>
-        <button type="button" class="btn btn-outline-danger btn-lgx flex-fill" id="btnCredito">
-          Credit
+      <!-- Botón Proceder al Cobro -->
+      <div id="btnProcederWrapper">
+        <button id="btnProcederCobro" class="btn btn-primary w-100">
+          💳 Proceder al Cobro
         </button>
       </div>
+      
+      <!-- Sección de Cobro (oculta inicialmente) -->
+      <div id="seccionCobro" style="display:none;">
+        
+        <div class="currency-section">
+          <div class="currency-title">💵 Pesos Mexicanos (MXN)</div>
+          <input type="number" id="cobroPesos" class="form-control mb-2" placeholder="$0.00" step="0.01">
+          <div class="denomination-grid">
+            <button class="btn btn-sm btn-outline-primary mxn-pay-btn" data-pay="20">$20</button>
+            <button class="btn btn-sm btn-outline-primary mxn-pay-btn" data-pay="50">$50</button>
+            <button class="btn btn-sm btn-outline-primary mxn-pay-btn" data-pay="100">$100</button>
+            <button class="btn btn-sm btn-outline-primary mxn-pay-btn" data-pay="200">$200</button>
+            <button class="btn btn-sm btn-outline-primary mxn-pay-btn" data-pay="500">$500</button>
+            <button class="btn btn-sm btn-outline-success" id="exactoBtn">Exacto</button>
+          </div>
+        </div>
 
-      <!-- Monto recibido y cambio local -->
-      <!-- Cobro en PESOS -->
-      <div class="mb-2">
-        <label class="form-label">💵 Cobro en Pesos MXN</label>
-        <input id="cobroPesos" class="form-control" inputmode="decimal" autocomplete="off" placeholder="0.00">
+        <div class="currency-section">
+          <div class="currency-title">💵 Dólares (USD)</div>
+          <input type="number" id="cobroDolares" class="form-control mb-2" placeholder="$0.00 USD" step="0.01">
+          <div class="denomination-grid">
+            <button class="btn btn-sm btn-outline-secondary usd-pay-btn" data-pay-usd="1">$1</button>
+            <button class="btn btn-sm btn-outline-secondary usd-pay-btn" data-pay-usd="5">$5</button>
+            <button class="btn btn-sm btn-outline-secondary usd-pay-btn" data-pay-usd="10">$10</button>
+            <button class="btn btn-sm btn-outline-secondary usd-pay-btn" data-pay-usd="20">$20</button>
+            <button class="btn btn-sm btn-outline-secondary usd-pay-btn" data-pay-usd="50">$50</button>
+            <button class="btn btn-sm btn-outline-secondary usd-pay-btn" data-pay-usd="100">$100</button>
+          </div>
+        </div>
+
+        <div class="text-center mb-2">
+          <small class="text-muted">Tipo de cambio: ${{ "%.2f"|format(tipo_cambio) }} MXN/USD</small>
+        </div>
+
+        <button id="btnConfirmarCobro" class="btn btn-success w-100">
+          ✅ Confirmar Cobro
+        </button>
       </div>
+    </div>
+  </div>
 
-      <!-- Cobro en DÓLARES -->
-      <div class="mb-2">
-        <label class="form-label">💵 Cobro en Dólares USD</label>
-        <input id="cobroDolares" class="form-control" inputmode="decimal" autocomplete="off" placeholder="0.00">
+</div>
+
+<!-- MODAL: Cambio -->
+<div class="modal fade" id="modalCambio" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title">💵 Cambio para el Cliente</h5>
       </div>
-
-      <!-- Resumen -->
-      <div class="tot-row" style="background:#f0f0f0; padding:10px; border-radius:5px; margin-top:10px;">
-        <span><strong>Total Cobro:</strong></span>
-        <strong id="totalCobroLabel">$0.00</strong>
+      <div class="modal-body text-center">
+        <div class="mb-3">
+          <h1 class="display-4 text-success fw-bold" id="modalCambioCantidad">$0.00</h1>
+          <p class="text-muted">Devuelve esta cantidad al cliente</p>
+        </div>
+        <button type="button" class="btn btn-success btn-lg w-100" id="btnCerrarModal">
+          ✓ Cliente Recibió su Cambio - Continuar
+        </button>
       </div>
-      <div class="tot-row" style="background:#e8f5e9; padding:10px; border-radius:5px;">
-        <span><strong>Cambio:</strong></span>
-        <strong id="cambioLabel">$0.00</strong>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Retiro de Efectivo -->
+<div class="modal fade" id="modalRetiro" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning">
+        <h5 class="modal-title">💵 Retiro de Efectivo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
+      <div class="modal-body">
+        <form method="post" action="{{ url_for('registrar_retiro') }}" id="frmRetiro">
+          
+          <!-- Billetes MXN -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">💵 Billetes (MXN)</label>
+            
+            <div class="row g-2 mb-2">
+              <div class="col-4">
+                <label class="small">$20</label>
+                <input type="number" class="form-control form-control-sm" id="bill20" min="0" value="0">
+              </div>
+              <div class="col-4">
+                <label class="small">$50</label>
+                <input type="number" class="form-control form-control-sm" id="bill50" min="0" value="0">
+              </div>
+              <div class="col-4">
+                <label class="small text-end">Equiv:</label>
+                <div class="fw-bold text-end" id="equiv20">$0.00</div>
+              </div>
+            </div>
+            
+            <div class="row g-2 mb-2">
+              <div class="col-4"></div>
+              <div class="col-4"></div>
+              <div class="col-4">
+                <div class="fw-bold text-end" id="equiv50">$0.00</div>
+              </div>
+            </div>
+            
+            <div class="row g-2 mb-2">
+              <div class="col-4">
+                <label class="small">$100</label>
+                <input type="number" class="form-control form-control-sm" id="bill100" min="0" value="0">
+              </div>
+              <div class="col-4">
+                <label class="small">$200</label>
+                <input type="number" class="form-control form-control-sm" id="bill200" min="0" value="0">
+              </div>
+              <div class="col-4">
+                <div class="fw-bold text-end" id="equiv100">$0.00</div>
+              </div>
+            </div>
+            
+            <div class="row g-2 mb-2">
+              <div class="col-4"></div>
+              <div class="col-4"></div>
+              <div class="col-4">
+                <div class="fw-bold text-end" id="equiv200">$0.00</div>
+              </div>
+            </div>
+            
+            <div class="row g-2">
+              <div class="col-4">
+                <label class="small">$500</label>
+                <input type="number" class="form-control form-control-sm" id="bill500" min="0" value="0">
+              </div>
+              <div class="col-4"></div>
+              <div class="col-4">
+                <div class="fw-bold text-end" id="equiv500">$0.00</div>
+              </div>
+            </div>
+          </div>
+          
+          <hr>
+          
+          <div class="row g-2 mb-2">
+            <div class="col-8">
+              <strong>Total Pesos:</strong>
+            </div>
+            <div class="col-4 text-end">
+              <strong id="totalPesos">$0.00</strong>
+            </div>
+          </div>
+          
+          <!-- Dólares -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">💵 Dólares (USD)</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" class="form-control" id="dolaresInput" step="0.01" min="0" value="0">
+              <span class="input-group-text">USD</span>
+            </div>
+            <input type="hidden" id="dolaresEnPesos" name="dolares_en_pesos">
+          </div>
+          
+          <div class="row g-2 mb-2">
+            <div class="col-8">
+              <small class="text-muted">Equiv. Dólares (TC ${{ "%.2f"|format(tipo_cambio) }}):</small>
+            </div>
+            <div class="col-4 text-end">
+              <strong id="totalDolaresEquiv">$0.00</strong>
+            </div>
+          </div>
+          
+          <hr>
+          
+          <div class="row g-2 mb-3">
+            <div class="col-8">
+              <h5>TOTAL GENERAL:</h5>
+            </div>
+            <div class="col-4 text-end">
+              <h5 class="text-danger" id="totalGeneral">$0.00</h5>
+            </div>
+          </div>
+          
+          <!-- Campo oculto con el monto total -->
+          <input type="hidden" name="monto" id="montoTotal">
+          
+          <!-- Concepto -->
+          <div class="mb-3">
+            <label class="form-label">Concepto:</label>
+            <textarea class="form-control" name="concepto" rows="2" placeholder="Ej: Cambio de billete" required></textarea>
+          </div>
+          
+          <div class="d-grid">
+            <button type="submit" class="btn btn-warning" id="btnConfirmarRetiro">
+              💵 Confirmar Retiro
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
 
-      <hr>
-
-      <button class="btn btn-outline-dark btn-lgx w-100 mt-2" type="button">Refund</button>
-      <button class="btn btn-outline-secondary btn-lgx w-100 mt-2" type="button">Other</button>
+<!-- ========================================
+     MODAL: CERRAR TURNO ANTIGUO
+     ======================================== -->
+<div class="modal fade" id="modalCerrarTurnoAntiguo" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border: 3px solid #dc3545;">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">
+          <i class="fas fa-exclamation-triangle"></i> Turno Pendiente de Cierre
+        </h5>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning mb-3">
+          <strong>⚠️ ATENCIÓN:</strong> Tienes un turno abierto desde el 
+          <strong>{{ turno_actual.fecha_formato if turno_actual else '' }}</strong> 
+          (hace {{ turno_actual.dias_abierto if turno_actual else 0 }} día(s)).
+        </div>
+        
+        <p class="mb-3">
+          No puedes realizar ventas hasta que cierres este turno pendiente.
+          Por favor, completa la información del cierre:
+        </p>
+        
+        <form action="{{ url_for('cerrar_turno_antiguo') }}" method="POST">
+          <input type="hidden" name="turno_id" value="{{ turno_actual.id if turno_actual else '' }}">
+          
+          <div class="mb-3">
+            <label class="form-label"><strong>Efectivo Final en Caja:</strong></label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" 
+                     class="form-control" 
+                     name="efectivo_final" 
+                     step="0.01" 
+                     required
+                     placeholder="0.00">
+            </div>
+            <small class="text-muted">Introduce el efectivo real que hay en caja</small>
+          </div>
+          
+          <div class="mb-3">
+            <label class="form-label">Observaciones (opcional):</label>
+            <textarea class="form-control" 
+                      name="observaciones" 
+                      rows="3"
+                      placeholder="Describe cualquier incidencia o nota importante"></textarea>
+          </div>
+          
+          <div class="d-grid">
+            <button type="submit" class="btn btn-danger btn-lg">
+              <i class="fas fa-lock"></i> Cerrar Turno Antiguo Ahora
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- OFFCANVAS: Selector de artículos -->
-<div class="offcanvas offcanvas-start" tabindex="-1" id="posSelector" style="width:360px">
+<div class="offcanvas offcanvas-end" id="posSelector" style="width:500px">
   <div class="offcanvas-header">
-    <h5 class="offcanvas-title">Artículos para botones</h5>
+    <h5>Seleccionar artículos para POS</h5>
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
   </div>
   <div class="offcanvas-body">
-    <form method="post" action="{{ url_for('caja_pos_config') }}" id="frmSel">
-      <input type="text" class="form-control form-control-sm mb-2" id="filtroModal" placeholder="Buscar...">
-      <div class="table-responsive" style="max-height:60vh;overflow:auto">
-        <table class="table table-sm">
-          <thead>
-            <tr>
-              <th style="width:36px"></th>
-              <th>Artículo</th>
-              <th class="text-end">Precio</th>
-            </tr>
-          </thead>
-          <tbody id="tblModal">
-            {% for it in items_all %}
-              <tr>
-                <td>
-                  <input type="checkbox" name="sel[]" value="{{ it.id }}"
-                         {% if it.id in sel_ids %}checked{% endif %}>
-                </td>
-                <td>{{ it.label }}</td>
-                <td class="text-end">${{ '%.2f'|format(it.precio) }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <small class="text-muted d-block mb-2">Se guarda en esta sesión.</small>
-      <div class="d-grid">
-        <button class="btn btn-primary" type="submit">Aplicar</button>
+    <input id="buscaOffcanvas" class="form-control mb-3" placeholder="Buscar...">
+    <form method="post" action="{{ url_for('caja_pos_config') }}" id="frmSeleccion">
+      {% for it in items_all %}
+        <div class="form-check">
+          <input class="form-check-input"
+                 type="checkbox"
+                 name="sel[]"
+                 value="{{ it.id }}"
+                 id="chk{{ it.id }}"
+                 {% if it.id in sel_ids %}checked{% endif %}>
+          <label class="form-check-label" for="chk{{ it.id }}">
+            {{ it.nombre }} - ${{ "%.2f"|format(it.pu) }}
+          </label>
+        </div>
+      {% endfor %}
+      <div class="d-grid mt-3">
+        <button class="btn btn-primary" type="submit">Guardar Selección</button>
       </div>
     </form>
   </div>
 </div>
 
-
-<!-- Modal Retiro de Efectivo -->
-<div class="modal fade" id="modalRetiro" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header bg-warning">
-        <h5 class="modal-title">💰 Retiro Parcial de Efectivo</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <form method="post" action="{{ url_for('registrar_retiro') }}" id="frmRetiro">
-        <div class="modal-body">
-          
-          <h6 class="mb-3">💵 Billetes en Pesos MXN</h6>
-          <div class="row g-3 mb-4">
-            <!-- $20 -->
-            <div class="col-md-6">
-              <label class="form-label">Billetes de $20</label>
-              <div class="input-group">
-                <input type="number" name="billetes_20" class="form-control denominacion" 
-                       min="0" value="0" data-valor="20" id="bill20">
-                <span class="input-group-text">× $20 =</span>
-                <span class="input-group-text fw-bold" id="equiv20">$0.00</span>
-              </div>
-            </div>
-            <!-- $50 -->
-            <div class="col-md-6">
-              <label class="form-label">Billetes de $50</label>
-              <div class="input-group">
-                <input type="number" name="billetes_50" class="form-control denominacion" 
-                       min="0" value="0" data-valor="50" id="bill50">
-                <span class="input-group-text">× $50 =</span>
-                <span class="input-group-text fw-bold" id="equiv50">$0.00</span>
-              </div>
-            </div>
-            <!-- $100 -->
-            <div class="col-md-6">
-              <label class="form-label">Billetes de $100</label>
-              <div class="input-group">
-                <input type="number" name="billetes_100" class="form-control denominacion" 
-                       min="0" value="0" data-valor="100" id="bill100">
-                <span class="input-group-text">× $100 =</span>
-                <span class="input-group-text fw-bold" id="equiv100">$0.00</span>
-              </div>
-            </div>
-            <!-- $200 -->
-            <div class="col-md-6">
-              <label class="form-label">Billetes de $200</label>
-              <div class="input-group">
-                <input type="number" name="billetes_200" class="form-control denominacion" 
-                       min="0" value="0" data-valor="200" id="bill200">
-                <span class="input-group-text">× $200 =</span>
-                <span class="input-group-text fw-bold" id="equiv200">$0.00</span>
-              </div>
-            </div>
-            <!-- $500 -->
-            <div class="col-md-6">
-              <label class="form-label">Billetes de $500</label>
-              <div class="input-group">
-                <input type="number" name="billetes_500" class="form-control denominacion" 
-                       min="0" value="0" data-valor="500" id="bill500">
-                <span class="input-group-text">× $500 =</span>
-                <span class="input-group-text fw-bold" id="equiv500">$0.00</span>
-              </div>
-            </div>
-          </div>
-
-          <h6 class="mb-3">💵 Dólares USD</h6>
-          <div class="row g-3 mb-4">
-            <div class="col-md-6">
-              <label class="form-label">Monto en Dólares</label>
-              <div class="input-group">
-                <span class="input-group-text">$</span>
-                <input type="number" name="dolares" class="form-control" 
-                       step="0.01" min="0" value="0" id="dolaresInput">
-                <span class="input-group-text">USD</span>
-              </div>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Equivalente en Pesos</label>
-              <div class="input-group">
-                <span class="input-group-text">TC: ${{ "%.2f"|format(tipo_cambio|default(20.0)) }}</span>
-                <input type="text" class="form-control fw-bold" id="dolaresEnPesos" readonly>
-                <span class="input-group-text">MXN</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Total calculado -->
-          <div class="card bg-light">
-            <div class="card-body">
-              <div class="row mb-2">
-                <div class="col-6">
-                  <strong>💵 Total en Pesos:</strong>
-                </div>
-                <div class="col-6 text-end">
-                  <h5 class="mb-0 text-primary" id="totalPesos">$0.00</h5>
-                </div>
-              </div>
-              <div class="row mb-2">
-                <div class="col-6">
-                  <strong>💵 Total en Dólares (equivalente):</strong>
-                </div>
-                <div class="col-6 text-end">
-                  <h5 class="mb-0 text-info" id="totalDolaresEquiv">$0.00</h5>
-                </div>
-              </div>
-              <hr>
-              <div class="row">
-                <div class="col-6">
-                  <strong>💰 TOTAL GENERAL:</strong>
-                </div>
-                <div class="col-6 text-end">
-                  <h3 class="mb-0 text-success" id="totalGeneral">$0.00</h3>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Campo oculto para enviar el total -->
-          <input type="hidden" name="monto" id="montoTotal">
-          <input type="hidden" name="motivo" value="Retiro parcial">
-
-          <div class="mb-3 mt-3">
-            <label class="form-label">Notas adicionales (opcional)</label>
-            <textarea name="notas" class="form-control" rows="2" 
-                      placeholder="Ej: Retiro autorizado por gerente, resguardo en caja fuerte..."></textarea>
-          </div>
-
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-warning" id="btnConfirmarRetiro" disabled>
-            💵 Registrar Retiro
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-
 <script>
-  // ===== Refs básicos =====
-  const frmAdd      = document.getElementById('frmAdd');
-  const hidId       = document.getElementById('mercancia_id');
-  const nombre      = document.getElementById('nombre');
-  const precioIn    = document.getElementById('puInput');
-  const precioDisp  = document.getElementById('precio');
-  const cantidadUI  = document.getElementById('cantidad');
-  const cantIn      = document.getElementById('cantInput');
+  const tipoCambio = parseFloat('{{ tipo_cambio }}') || 20;
+  const totalVenta = parseFloat('{{ "%.2f"|format(totals.total) }}') || 0;
+  const cobroPesos = document.getElementById('cobroPesos');
+  const cobroDolares = document.getElementById('cobroDolares');
+  const btnConfirmarCobro = document.getElementById('btnConfirmarCobro');
 
-  // ===== Filtro Offcanvas =====
-  const filtroModal = document.getElementById('filtroModal');
-  if (filtroModal) {
-    filtroModal.addEventListener('input', () => {
-      const q = filtroModal.value.toLowerCase();
-      document.querySelectorAll('#tblModal tr').forEach(tr => {
-        tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
-      });
+  // Variables para rastrear modo del teclado
+  let keypadMode = 'pesos';
+  let activeInput = cobroPesos;
+  let modoCobro = false;
+
+  // Teclado numérico - Dual: Cantidad o Cobro según contexto
+  document.querySelectorAll('.key').forEach(k => {
+    k.addEventListener('click', () => {
+      const key = k.dataset.key;
+      
+      // ===== MODO COBRO: Escribir en cobroPesos/Dólares =====
+      if (modoCobro) {
+        if (!activeInput) return;
+        
+        if (key === 'C') {
+          activeInput.value = '';
+        } else if (key === '←') {
+          activeInput.value = activeInput.value.slice(0, -1);
+        } else if (key === '.') {
+          if (!activeInput.value.includes('.')) {
+            activeInput.value += '.';
+          }
+        } else {
+          activeInput.value += key;
+        }
+        actualizarCambio();
+      } 
+      // ===== MODO NORMAL: Escribir en campo "Can" =====
+      else {
+        const inputCant = document.querySelector('input[name="cant"]');
+        if (!inputCant) return;
+        
+        if (key === 'C') {
+          inputCant.value = '';
+        } else if (key === '←') {
+          inputCant.value = inputCant.value.slice(0, -1);
+        } else if (key === '.') {
+          // No permitir decimales en cantidad
+          return;
+        } else {
+          inputCant.value += key;
+        }
+        
+        // Feedback visual - resaltar campo
+        inputCant.style.background = '#e3f2fd';
+        inputCant.style.transform = 'scale(1.05)';
+        setTimeout(() => {
+          inputCant.style.background = '';
+          inputCant.style.transform = '';
+        }, 150);
+      }
     });
-  }
+  });
 
-  // ===== Filtro de tiles =====
-  const busca = document.getElementById('busca');
-  if (busca) {
-    busca.addEventListener('input', () => {
-      const q = busca.value.toLowerCase();
-      document.querySelectorAll('#posTiles .tile').forEach(t => {
-        t.style.display = t.textContent.toLowerCase().includes(q) ? '' : 'none';
-      });
-    });
-  }
-
-  // ===== Tiles: agregar producto usando cantidad actual =====
-  if (frmAdd && cantIn && cantidadUI && hidId && nombre && precioIn) {
-    document.querySelectorAll('#posTiles .tile').forEach(t => {
-      t.addEventListener('click', () => {
-        document.querySelectorAll('#posTiles .tile').forEach(x => x.classList.remove('active'));
-        t.classList.add('active');
-
-        const id  = t.dataset.id || '';
-        const nom = t.dataset.name || '';
-        const p   = (parseFloat(t.dataset.price || '0') || 0).toFixed(2);
-
-        hidId.value    = id;
-        nombre.value   = nom;
-        precioIn.value = p;
-
-        let cantVal = cantidadUI.value.trim();
-        cantIn.value = cantVal || '1';
-
-        frmAdd.requestSubmit();
-      });
-    });
-
-    frmAdd.addEventListener('submit', () => {
-      cantIn.value = cantidadUI.value || '1';
-    });
-  }
-
-  // ================= PAGO: COBRO, CAMBIO, FORMAS =================
-
-  const totalVenta    = {{ "%.2f"|format(totals.total) }};
-  const tipoCambio    = {{ "%.2f"|format(tipo_cambio|default(20.0)) }};
-  const cobroPesos    = document.getElementById('cobroPesos');
-  const cobroDolares  = document.getElementById('cobroDolares');
-  const cambioLabel   = document.getElementById('cambioLabel');
-  const totalCobroLabel = document.getElementById('totalCobroLabel');
-  const cobroPesosSidebar  = document.getElementById('cobroPesosSidebar');
-  const cobroDolaresSidebar = document.getElementById('cobroDolaresSidebar');
-  const sumaCobro     = document.getElementById('sumaCobro');
-  const cambioSidebar = document.getElementById('cambioSidebar');
-  const hiddenMonto   = document.getElementById('montoCobradoField');
-  const formaPagoField= document.getElementById('formaPagoField');
-  const btnEfectivo   = document.getElementById('btnEfectivo');
-  const btnCredito    = document.getElementById('btnCredito');
-  const btnSiguiente  = document.getElementById('btnSiguienteCliente');
-  const quickPayBtns  = document.querySelectorAll('[data-pay]');
-  const usdPayBtns    = document.querySelectorAll('[data-pay-usd]');
-  const exactoBtn     = document.getElementById('btnExacto');
-
-  let keypadMode = 'cantidad';
-  let activeInput = null;
-
-  function actualizarCambio() {
-    const pesos = parseFloat(cobroPesos?.value || '0') || 0;
-    const dolares = parseFloat(cobroDolares?.value || '0') || 0;
-    
-    const dolaresEnPesos = dolares * tipoCambio;
-    const totalCobro = pesos + dolaresEnPesos;
-    
-    let cambio = totalCobro - totalVenta;
-    if (cambio < 0) cambio = 0;
-    
-    if (cobroPesosSidebar)  cobroPesosSidebar.textContent  = '$' + pesos.toFixed(2);
-    if (cobroDolaresSidebar) cobroDolaresSidebar.textContent = '$' + dolaresEnPesos.toFixed(2);
-    if (sumaCobro)          sumaCobro.textContent          = '$' + totalCobro.toFixed(2);
-    if (cambioSidebar)      cambioSidebar.textContent      = '$' + cambio.toFixed(2);
-    
-    if (totalCobroLabel)    totalCobroLabel.textContent    = '$' + totalCobro.toFixed(2);
-    if (cambioLabel)        cambioLabel.textContent        = '$' + cambio.toFixed(2);
-    
-    if (hiddenMonto)        hiddenMonto.value = totalCobro > 0 ? totalCobro.toFixed(2) : '';
-  }
-
+  // Focus en inputs para cambiar modo
   if (cobroPesos) {
     cobroPesos.addEventListener('focus', () => {
       keypadMode = 'pesos';
       activeInput = cobroPesos;
     });
     cobroPesos.addEventListener('input', actualizarCambio);
-    cobroPesos.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (cobroDolares) cobroDolares.focus();
-      }
-    });
   }
 
   if (cobroDolares) {
@@ -591,96 +802,109 @@
       activeInput = cobroDolares;
     });
     cobroDolares.addEventListener('input', actualizarCambio);
-    cobroDolares.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        actualizarCambio();
-        if (btnSiguiente) btnSiguiente.click();
+  }
+
+  function actualizarCambio() {
+    const pesos = parseFloat(cobroPesos?.value || '0') || 0;
+    const dolares = parseFloat(cobroDolares?.value || '0') || 0;
+    const dolaresEnPesos = dolares * tipoCambio;
+    const totalCobro = pesos + dolaresEnPesos;
+    const cambio = totalCobro - totalVenta;
+
+    document.getElementById('cobroPesosSidebar').textContent = '$' + pesos.toFixed(2);
+    document.getElementById('cobroDolaresSidebar').textContent = '$' + dolares.toFixed(2) + ' USD';
+    document.getElementById('sumaCobro').textContent = '$' + totalCobro.toFixed(2);
+    document.getElementById('cambioSidebar').textContent = '$' + cambio.toFixed(2);
+
+    document.getElementById('montoCobradoField').value = totalCobro.toFixed(2);
+  }
+
+  actualizarCambio();
+
+  // ================= CLICK EN TILES DE PRODUCTOS =================
+
+  const posTiles = document.getElementById('posTiles');
+  if (posTiles) {
+    posTiles.addEventListener('click', async (e) => {
+      const tile = e.target.closest('.tile-producto');
+      if (!tile) return;
+
+      const id = tile.dataset.id;
+      const nombre = tile.dataset.nombre;
+      const pu = parseFloat(tile.dataset.pu) || 0;
+
+      // TOMAR CANTIDAD DEL CAMPO "Can"
+      const inputCant = document.querySelector('input[name="cant"]');
+      let cantidad = 1;
+      
+      if (inputCant && inputCant.value && inputCant.value.trim() !== '') {
+        cantidad = parseFloat(inputCant.value) || 1;
+        if (cantidad <= 0) cantidad = 1;
+      }
+
+      tile.classList.add('active');
+      setTimeout(() => tile.classList.remove('active'), 200);
+
+      const formData = new FormData();
+      formData.append('mercancia_id', id);
+      formData.append('nombre', nombre);
+      formData.append('cant', cantidad.toString());
+      formData.append('pu', pu);
+
+      try {
+        const resp = await fetch('{{ url_for("caja_agregar") }}', {
+          method: 'POST',
+          body: formData
+        });
+        if (resp.ok) {
+          // Limpiar campo
+          if (inputCant) inputCant.value = '';
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error(err);
       }
     });
   }
 
-  if (btnEfectivo) {
-    btnEfectivo.addEventListener('click', () => {
-      if (formaPagoField) formaPagoField.value = 'Efectivo';
-      keypadMode = 'pesos';
-      if (cobroPesos) cobroPesos.focus();
+  // ================= BÚSQUEDA DE PRODUCTOS =================
+
+  const busca = document.getElementById('busca');
+  if (busca) {
+    busca.addEventListener('input', () => {
+      const q = busca.value.toLowerCase();
+      document.querySelectorAll('.tile-producto').forEach(t => {
+        const nombre = t.dataset.nombre.toLowerCase();
+        t.style.display = nombre.includes(q) ? '' : 'none';
+      });
     });
   }
 
-  if (btnCredito) {
-    btnCredito.addEventListener('click', () => {
-      if (formaPagoField) formaPagoField.value = 'Tarjeta';
-      keypadMode = 'pesos';
-      if (cobroPesos) cobroPesos.focus();
+  const buscaOff = document.getElementById('buscaOffcanvas');
+  if (buscaOff) {
+    buscaOff.addEventListener('input', () => {
+      const q = buscaOff.value.toLowerCase();
+      document.querySelectorAll('#frmSeleccion .form-check').forEach(chk => {
+        const lbl = chk.querySelector('label').textContent.toLowerCase();
+        chk.style.display = lbl.includes(q) ? '' : 'none';
+      });
     });
   }
 
-  // ================= TECLADO NUMÉRICO =================
+  // ================= BOTONES DE DENOMINACIÓN =================
 
-  function aplicarKeypadCantidad(valor) {
-    if (!cantidadUI) return;
-    let txt = (cantidadUI.value || '').toString().trim();
+  const mxnPayBtns = document.querySelectorAll('.mxn-pay-btn');
+  const usdPayBtns = document.querySelectorAll('.usd-pay-btn');
+  const exactoBtn = document.getElementById('exactoBtn');
 
-    if (valor === 'C') {
-      cantidadUI.value = '';
-      return;
-    }
-    if (valor === '⌫') {
-      txt = txt.slice(0, -1);
-      cantidadUI.value = txt;
-      return;
-    }
-    if (!/^[0-9.]+$/.test(valor)) {
-      return;
-    }
-
-    // Si está vacío o es '0', reemplazar
-    if (txt === '' || txt === '0') {
-      cantidadUI.value = valor;
-    } else {
-      // Concatenar
-      cantidadUI.value = txt + valor;
-    }
-  }
-
-
-  function aplicarKeypadCobro(valor) {
-    const input = activeInput || cobroPesos;
-    if (!input) return;
-    
-    let txt = (input.value || '').toString();
-
-    if (valor === 'C') {
-      input.value = '';
-    } else if (valor === '⌫') {
-      input.value = txt.slice(0, -1);
-    } else {
-      txt = txt.replace(/\s/g, '');
-      input.value = txt ? txt + valor : valor;
-    }
-    actualizarCambio();
-  }
-
-  document.querySelectorAll('.key').forEach(k => {
-    k.addEventListener('click', () => {
-      const v = k.dataset.k;
-      if (keypadMode === 'pesos' || keypadMode === 'dolares') {
-        aplicarKeypadCobro(v);
-      } else {
-        aplicarKeypadCantidad(v);
-      }
-    });
-  });
-
-  quickPayBtns.forEach(btn => {
+  mxnPayBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       if (!cobroPesos) return;
       const val = parseFloat(btn.dataset.pay) || 0;
       const actual = parseFloat(cobroPesos.value) || 0;
       keypadMode = 'pesos';
       activeInput = cobroPesos;
-      cobroPesos.value = (actual + val).toFixed(2);  // SUMA en lugar de reemplazar
+      cobroPesos.value = (actual + val).toFixed(2);
       actualizarCambio();
       cobroPesos.focus();
     });
@@ -693,12 +917,11 @@
       const actual = parseFloat(cobroDolares.value) || 0;
       keypadMode = 'dolares';
       activeInput = cobroDolares;
-      cobroDolares.value = (actual + usdAmount).toFixed(2);  // SUMA en lugar de reemplazar
+      cobroDolares.value = (actual + usdAmount).toFixed(2);
       actualizarCambio();
       cobroDolares.focus();
     });
   });
-
 
   if (exactoBtn) {
     exactoBtn.addEventListener('click', (e) => {
@@ -710,6 +933,89 @@
       if (cobroDolares) cobroDolares.value = '';
       actualizarCambio();
       cobroPesos.focus();
+    });
+  }
+
+  // ================= BOTÓN PROCEDER AL COBRO =================
+  
+  const btnProceder = document.getElementById('btnProcederCobro');
+  const seccionCobro = document.getElementById('seccionCobro');
+  const btnProcederWrapper = document.getElementById('btnProcederWrapper');
+  
+  
+  
+  if (btnProceder && seccionCobro) {
+    btnProceder.addEventListener('click', () => {
+      const hayArticulos = document.querySelectorAll('.cart-list table tbody tr').length > 0;
+      const sinArticulosMsg = document.querySelector('.cart-list table tbody tr td[colspan]');
+      
+      if (sinArticulosMsg || !hayArticulos) {
+        alert('⚠️ Agrega artículos al carrito antes de proceder al cobro');
+        return;
+      }
+      
+      modoCobro = true;
+      
+      btnProcederWrapper.style.display = 'none';
+      seccionCobro.style.display = 'block';
+      
+      document.querySelectorAll('.btn-eliminar').forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      });
+      
+      document.querySelectorAll('.tile-producto').forEach(tile => {
+        tile.style.pointerEvents = 'none';
+        tile.style.opacity = '0.6';
+      });
+      
+      document.querySelectorAll('.btn-agregar, .btn-cancelar, .btn-elegir, .input-nombre, .input-cant, .input-pu, .input-precio, .input-cantidad').forEach(el => {
+        el.disabled = true;
+        el.style.opacity = '0.5';
+        el.style.pointerEvents = 'none';
+      });
+      
+      if (cobroPesos) {
+        keypadMode = 'pesos';
+        activeInput = cobroPesos;
+        cobroPesos.focus();
+      }
+    });
+  }
+  
+  // ================= BOTÓN CONFIRMAR COBRO =================
+  
+  if (btnConfirmarCobro) {
+    btnConfirmarCobro.addEventListener('click', () => {
+      const pesos = parseFloat(cobroPesos?.value || '0') || 0;
+      const dolares = parseFloat(cobroDolares?.value || '0') || 0;
+      const totalCobro = pesos + (dolares * tipoCambio);
+      const cambio = totalCobro - totalVenta;
+      
+      if (totalCobro < totalVenta) {
+        alert('⚠️ El monto cobrado ($' + totalCobro.toFixed(2) + ') es menor al total de la venta ($' + totalVenta.toFixed(2) + ')');
+        return;
+      }
+      
+      // Mostrar modal con el cambio
+      const modalCambioEl = document.getElementById('modalCambio');
+      const modalCambio = new bootstrap.Modal(modalCambioEl);
+      document.getElementById('modalCambioCantidad').textContent = '$' + cambio.toFixed(2);
+      modalCambio.show();
+      
+      // NO enviar automáticamente - esperar a que el cajero presione Continuar
+    });
+  }
+  
+  // Botón cerrar modal - envía el formulario cuando el cajero verifica
+  const btnCerrarModal = document.getElementById('btnCerrarModal');
+  if (btnCerrarModal) {
+    btnCerrarModal.addEventListener('click', () => {
+      const frmCobrar = document.getElementById('frmCobrar');
+      if (frmCobrar) {
+        frmCobrar.submit();
+      }
     });
   }
 
@@ -800,5 +1106,182 @@
       return false;
     }
   });
+
+  // ================= AUTO-ABRIR MODAL SI HAY TURNO ANTIGUO =================
+  
+  {% if turno_antiguo %}
+  document.addEventListener('DOMContentLoaded', function() {
+    const modal = new bootstrap.Modal(document.getElementById('modalCerrarTurnoAntiguo'));
+    modal.show();
+    
+    // Bloquear toda la interacción con la caja
+    document.querySelectorAll('.tile-producto, .btn-agregar, #btnProcederCobro').forEach(el => {
+      el.style.pointerEvents = 'none';
+      el.style.opacity = '0.5';
+    });
+  });
+  {% endif %}
+
+  // ================= DEBUG MODAL CERRAR TURNO =================
+  document.addEventListener('DOMContentLoaded', function() {
+    console.log('========================================');
+    console.log('🔍 DEBUG MODAL - INICIO');
+    console.log('========================================');
+    
+    {% if turno_antiguo %}
+      console.log('✅ turno_antiguo = TRUE');
+      
+      {% if turno_actual %}
+        console.log('✅ turno_actual existe');
+        console.log('  - ID:', {{ turno_actual.id }});
+        console.log('  - Fecha:', '{{ turno_actual.fecha_formato }}');
+        console.log('  - Días abierto:', {{ turno_actual.dias_abierto }});
+      {% else %}
+        console.error('❌ turno_actual es NULL');
+      {% endif %}
+      
+      // Verificar que el formulario existe
+      const formModal = document.querySelector('#modalCerrarTurnoAntiguo form');
+      if (formModal) {
+        console.log('✅ Formulario encontrado');
+        console.log('  - Action:', formModal.action);
+        
+        // Interceptar el envío
+        formModal.addEventListener('submit', function(e) {
+          console.log('========================================');
+          console.log('📤 FORMULARIO ENVIÁNDOSE');
+          console.log('========================================');
+          
+          const turnoId = document.querySelector('input[name="turno_id"]');
+          const efectivo = document.querySelector('input[name="efectivo_final"]');
+          const obs = document.querySelector('textarea[name="observaciones"]');
+          
+          console.log('Campos del formulario:');
+          console.log('  - turno_id:', turnoId ? turnoId.value : '❌ NO ENCONTRADO');
+          console.log('  - efectivo_final:', efectivo ? efectivo.value : '❌ NO ENCONTRADO');
+          console.log('  - observaciones:', obs ? obs.value : '❌ NO ENCONTRADO');
+          
+          // Validar turno_id
+          if (!turnoId || !turnoId.value) {
+            console.error('❌ ERROR: turno_id vacío o no encontrado');
+            e.preventDefault();
+            alert('❌ Error: No se pudo identificar el turno');
+            return false;
+          }
+          
+          // Validar efectivo_final
+          if (!efectivo || !efectivo.value || efectivo.value === '') {
+            console.error('❌ ERROR: efectivo_final vacío');
+            e.preventDefault();
+            alert('⚠️ Por favor ingresa el efectivo final');
+            return false;
+          }
+          
+          console.log('✅ Validación OK');
+          console.log('✅ Enviando formulario a:', formModal.action);
+          console.log('========================================');
+          // Dejar que el formulario se envíe
+        });
+      } else {
+        console.error('❌ Formulario #modalCerrarTurnoAntiguo form NO encontrado');
+      }
+    {% else %}
+      console.log('ℹ️ turno_antiguo = FALSE (sin turno antiguo)');
+    {% endif %}
+    
+    console.log('========================================');
+    console.log('🔍 DEBUG MODAL - FIN');
+    console.log('========================================');
+  });
+
+// ================= AUTO-ABRIR MODAL SI HAY TURNO ANTIGUO =================
+  
+  {% if turno_antiguo %}
+  document.addEventListener('DOMContentLoaded', function() {
+    const modal = new bootstrap.Modal(document.getElementById('modalCerrarTurnoAntiguo'));
+    modal.show();
+    
+    // Bloquear toda la interacción con la caja
+    document.querySelectorAll('.tile-producto, .btn-agregar, #btnProcederCobro').forEach(el => {
+      el.style.pointerEvents = 'none';
+      el.style.opacity = '0.5';
+    });
+  });
+  {% endif %}
+
+  // ================= DEBUG MODAL CERRAR TURNO =================
+  document.addEventListener('DOMContentLoaded', function() {
+    console.log('========================================');
+    console.log('🔍 DEBUG MODAL - INICIO');
+    console.log('========================================');
+    
+    {% if turno_antiguo %}
+      console.log('✅ turno_antiguo = TRUE');
+      
+      {% if turno_actual %}
+        console.log('✅ turno_actual existe');
+        console.log('  - ID:', {{ turno_actual.id }});
+        console.log('  - Fecha:', '{{ turno_actual.fecha_formato }}');
+        console.log('  - Días abierto:', {{ turno_actual.dias_abierto }});
+      {% else %}
+        console.error('❌ turno_actual es NULL');
+      {% endif %}
+      
+      // Verificar que el formulario existe
+      const formModal = document.querySelector('#modalCerrarTurnoAntiguo form');
+      if (formModal) {
+        console.log('✅ Formulario encontrado');
+        console.log('  - Action:', formModal.action);
+        
+        // Interceptar el envío
+        formModal.addEventListener('submit', function(e) {
+          console.log('========================================');
+          console.log('📤 FORMULARIO ENVIÁNDOSE');
+          console.log('========================================');
+          
+          const turnoId = document.querySelector('input[name="turno_id"]');
+          const efectivo = document.querySelector('input[name="efectivo_final"]');
+          const obs = document.querySelector('textarea[name="observaciones"]');
+          
+          console.log('Campos del formulario:');
+          console.log('  - turno_id:', turnoId ? turnoId.value : '❌ NO ENCONTRADO');
+          console.log('  - efectivo_final:', efectivo ? efectivo.value : '❌ NO ENCONTRADO');
+          console.log('  - observaciones:', obs ? obs.value : '❌ NO ENCONTRADO');
+          
+          // Validar turno_id
+          if (!turnoId || !turnoId.value) {
+            console.error('❌ ERROR: turno_id vacío o no encontrado');
+            e.preventDefault();
+            alert('❌ Error: No se pudo identificar el turno');
+            return false;
+          }
+          
+          // Validar efectivo_final
+          if (!efectivo || !efectivo.value || efectivo.value === '') {
+            console.error('❌ ERROR: efectivo_final vacío');
+            e.preventDefault();
+            alert('⚠️ Por favor ingresa el efectivo final');
+            return false;
+          }
+          
+          console.log('✅ Validación OK');
+          console.log('✅ Enviando formulario a:', formModal.action);
+          console.log('========================================');
+          // Dejar que el formulario se envíe
+        });
+      } else {
+        console.error('❌ Formulario #modalCerrarTurnoAntiguo form NO encontrado');
+      }
+    {% else %}
+      console.log('ℹ️ turno_antiguo = FALSE (sin turno antiguo)');
+    {% endif %}
+    
+    console.log('========================================');
+    console.log('🔍 DEBUG MODAL - FIN');
+    console.log('========================================');
+  });
+
+
+
 </script>
 {% endblock %}

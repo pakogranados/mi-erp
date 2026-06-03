@@ -1,0 +1,111 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="page-title mb-0">
+            <i class="fas fa-box-open"></i> Recibir Compra
+        </h2>
+        <a href="{{ url_for('almacen_recepciones') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <strong>Compra:</strong> #{{ compra.id }}
+                </div>
+                <div class="col-md-3">
+                    <strong>Fecha:</strong> {{ compra.fecha }}
+                </div>
+                <div class="col-md-3">
+                    <strong>No. Factura:</strong> {{ compra.numero_factura }}
+                </div>
+                <div class="col-md-3">
+                    <strong>Proveedor:</strong> {{ compra.proveedor }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <form method="POST">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Productos a Recibir</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Producto</th>
+                                <th class="text-center">Cantidad Esperada</th>
+                                <th class="text-center">Cantidad Recibida</th>
+                                <th>Ubicación en Almacén</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for d in detalles %}
+                            <tr>
+                                <td>
+                                    <strong>{{ d.producto }}</strong>
+                                    <input type="hidden" name="detalle_id[]" value="{{ d.id }}">
+                                </td>
+                                <td class="text-center">
+                                    {{ "%.2f"|format(d.contenido_neto_total) }} {{ d.unidad_medida or '' }}
+                                </td>
+                                <td>
+                                    <input type="number" 
+                                           name="cantidad_recibida[]" 
+                                           class="form-control text-end" 
+                                           step="0.01" 
+                                           min="0"
+                                           value="{{ "%.2f"|format(d.contenido_neto_total) }}"
+                                           required>
+                                </td>
+                                <td>
+                                    <select name="ubicacion_id[]" class="form-select" required>
+                                        <option value="">Seleccionar ubicación...</option>
+                                        {% if ubicaciones and ubicaciones|length > 0 %}
+                                            {% for ub in ubicaciones %}
+                                                <option value="{{ ub.id }}" title="{{ ub.descripcion_completa }}">
+                                                    {{ ub.descripcion_completa }}
+                                                </option>
+                                            {% endfor %}
+                                        {% else %}
+                                            <option value="" disabled>No hay ubicaciones configuradas</option>
+                                        {% endif %}
+                                    </select>
+                                    {% if not ubicaciones or ubicaciones|length == 0 %}
+                                    <small class="text-danger">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                        Primero configura ubicaciones en: Inventario → Config. Almacenes
+                                    </small>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-3">
+                    <label class="form-label">Notas de Recepción (Opcional)</label>
+                    <textarea name="notas" class="form-control" rows="3" 
+                              placeholder="Observaciones sobre la recepción..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between">
+            <a href="{{ url_for('almacen_recepciones') }}" class="btn btn-secondary">
+                <i class="fas fa-times"></i> Cancelar
+            </a>
+            <button type="submit" class="btn btn-success btn-lg">
+                <i class="fas fa-check"></i> Confirmar Recepción
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

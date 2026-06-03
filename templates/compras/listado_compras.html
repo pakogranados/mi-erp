@@ -1,4 +1,4 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 
 {% block title %}Listado de Compras - ERP{% endblock %}
 
@@ -63,7 +63,10 @@
                 <span class="fw-medium">{{ c.proveedor }}</span>
               </td>
               <td class="px-4 text-end">
-                <span class="fw-bold text-success">${{ "{:,.2f}".format((c.total or 0)|float) }}</span>
+                <strong class="text-success">${{ "{:,.2f}".format((c.total_general or c.total or 0)|float) }}</strong>
+                {% if c.total_gastos and c.total_gastos > 0 %}
+                <br><small class="text-muted" style="font-size: 0.75rem;">(incl. ${{ "{:,.2f}".format(c.total_gastos|float) }} gastos)</small>
+                {% endif %}
               </td>
               <td class="px-4 text-center">
                 <div class="btn-group btn-group-sm" role="group">

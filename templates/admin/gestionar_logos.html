@@ -1,0 +1,115 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2><i class="fas fa-image text-primary"></i> Gestión de Logos de Empresas</h2>
+            <p class="text-muted mb-0">Sube y administra los logos de tus empresas</p>
+        </div>
+    </div>
+
+    <!-- Instrucciones -->
+    <div class="alert alert-info mb-4">
+        <h5 class="alert-heading"><i class="fas fa-info-circle"></i> Instrucciones</h5>
+        <ul class="mb-0">
+            <li><strong>Tamaño recomendado:</strong> 400x400 píxeles (mínimo 200x200)</li>
+            <li><strong>Formatos permitidos:</strong> PNG, JPG, JPEG, GIF</li>
+            <li><strong>Peso máximo:</strong> 5MB</li>
+            <li><strong>Recomendación:</strong> Usa PNG con fondo transparente para mejor resultado</li>
+        </ul>
+    </div>
+
+    <!-- Tabla de empresas -->
+    <div class="row g-4">
+        {% for empresa in empresas %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">{{ empresa.nombre }}</h5>
+                </div>
+                <div class="card-body text-center">
+                    <!-- Vista previa del logo -->
+                    <div class="mb-3">
+                        {% if empresa.logo_url %}
+                        <div class="position-relative d-inline-block">
+                            <img src="{{ empresa.logo_url }}" 
+                                 alt="{{ empresa.nombre }}" 
+                                 class="img-thumbnail"
+                                 style="width: 180px; height: 180px; object-fit: cover; border-radius: 50%;">
+                            <div class="position-absolute top-0 end-0">
+                                <span class="badge bg-success">
+                                    <i class="fas fa-check"></i> Con logo
+                                </span>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center"
+                             style="width: 180px; height: 180px; border: 3px dashed #dee2e6;">
+                            <div class="text-center">
+                                <i class="fas fa-image fa-3x text-muted mb-2"></i>
+                                <p class="text-muted small mb-0">Sin logo</p>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Info -->
+                    <p class="text-muted small mb-2">
+                        <i class="fas fa-boxes"></i> {{ empresa.total_productos }} productos
+                    </p>
+                    {% if empresa.contratante_nombre %}
+                    <p class="text-muted small mb-3">
+                        <i class="fas fa-building"></i> {{ empresa.contratante_nombre }}
+                    </p>
+                    {% endif %}
+
+                    <!-- Formulario de subida -->
+                    <form method="POST" enctype="multipart/form-data" class="mb-2">
+                        <input type="hidden" name="empresa_id" value="{{ empresa.id }}">
+                        
+                        <div class="mb-3">
+                            <label for="logo_{{ empresa.id }}" class="btn btn-primary w-100">
+                                <i class="fas fa-upload"></i> 
+                                {% if empresa.logo_url %}Cambiar Logo{% else %}Subir Logo{% endif %}
+                            </label>
+                            <input type="file" 
+                                   class="d-none" 
+                                   id="logo_{{ empresa.id }}" 
+                                   name="logo" 
+                                   accept=".png,.jpg,.jpeg,.gif"
+                                   onchange="this.form.submit()">
+                        </div>
+                    </form>
+
+                    <!-- Botón eliminar (solo si tiene logo) -->
+                    {% if empresa.logo_url %}
+                    <form method="POST" 
+                          action="{{ url_for('eliminar_logo_empresa', empresa_id=empresa.id) }}"
+                          onsubmit="return confirm('¿Eliminar el logo actual?');">
+                        <button type="submit" class="btn btn-outline-danger btn-sm w-100">
+                            <i class="fas fa-trash"></i> Eliminar Logo
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<style>
+.card {
+    transition: transform 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+input[type="file"] + label {
+    cursor: pointer;
+}
+</style>
+{% endblock %}

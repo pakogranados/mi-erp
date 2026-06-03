@@ -1,0 +1,249 @@
+{% extends "sidebar_multitenant.html" %}
+{% block extra_css %}
+<style>
+    .empresa-card {
+        transition: all 0.3s;
+        cursor: pointer;
+        position: relative;
+        border: 2px solid #dee2e6;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    .empresa-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        border-color: #2196F3;
+    }
+    .empresa-card.empresa-actual {
+        border-color: #2196F3;
+        border-width: 3px;
+        background: linear-gradient(135deg, #e3f2fd 0%, #ffffff 100%);
+    }
+    
+    /* Tooltip estructura organizacional */
+    .org-tooltip {
+        position: fixed;
+        display: none;
+        background: white;
+        border: 3px solid #2196F3;
+        border-radius: 12px;
+        padding: 25px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        z-index: 1050;
+        min-width: 400px;
+        max-width: 500px;
+    }
+    .org-tooltip.active {
+        display: block;
+        animation: fadeIn 0.2s;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateX(-10px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    .org-header {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #2196F3;
+        margin-bottom: 15px;
+        border-bottom: 3px solid #e3f2fd;
+        padding-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .org-content {
+        font-size: 0.9rem;
+        line-height: 1.8;
+    }
+    .org-section {
+        margin-bottom: 12px;
+        padding: 12px;
+        background: #f8f9fa;
+        border-radius: 6px;
+    }
+    .org-responsable {
+        background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%);
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 15px;
+        border-left: 4px solid #4CAF50;
+    }
+    .org-responsable strong {
+        color: #2e7d32;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="page-title mb-2">Empresas del Grupo Multi-Tenant</h2>
+            <p class="text-muted mb-0">
+                <i class="fas fa-building text-primary"></i>
+                Total: <strong>{{ empresas|length }}</strong> empresa(s) en el grupo
+            </p>
+        </div>
+        <a href="{{ url_for('admin_nueva_empresa') }}" class="btn btn-primary btn-lg">
+            <i class="fas fa-plus"></i> Nueva Empresa
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% if empresas and empresas|length > 0 %}
+        <div class="row">
+            {% for emp in empresas %}
+            <div class="col-md-6 col-lg-4 mb-4">
+                <div class="empresa-card card h-100 {% if emp.id == g.empresa_id %}empresa-actual{% endif %}"
+                     onmouseenter="showOrgTooltip(event, {{ emp.id }})"
+                     onmouseleave="hideOrgTooltip({{ emp.id }})">
+                    <div class="card-body">
+                        <!-- Header con avatar e info -->
+                        <div class="d-flex align-items-start mb-3">
+                            <div class="me-3">
+                                <div class="d-flex align-items-center justify-content-center bg-primary text-white rounded-circle" 
+                                     style="width: 60px; height: 60px; font-size: 1.5rem; font-weight: bold;">
+                                    {{ emp.nombre[0] }}
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h5 class="card-title mb-2">{{ emp.nombre }}</h5>
+                                {% if emp.id == g.empresa_id %}
+                                    <span class="badge bg-primary mb-2">Empresa Actual</span>
+                                {% endif %}
+                                <div>
+                                    {% if emp.activo %}
+                                        <span class="badge bg-success">Activa</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inactiva</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Información -->
+                        <div class="mb-3">
+                            {% if emp.rfc %}
+                            <p class="text-muted small mb-2">
+                                <i class="fas fa-id-card text-primary"></i> 
+                                <strong>RFC:</strong> {{ emp.rfc }}
+                            </p>
+                            {% endif %}
+                            
+                            <p class="text-muted small mb-0">
+                                <i class="fas fa-users text-primary"></i> 
+                                <strong>{{ emp.total_usuarios }}</strong> usuario(s)
+                            </p>
+                        </div>
+
+                        <!-- Acciones -->
+                        <div class="d-grid gap-2">
+                            {% if emp.id != g.empresa_id %}
+                                <a href="{{ url_for('cambiar_empresa', empresa_id=emp.id) }}" 
+                                   class="btn btn-outline-primary">
+                                    <i class="fas fa-exchange-alt"></i> Cambiar a esta empresa
+                                </a>
+                            {% else %}
+                                <button class="btn btn-primary" disabled>
+                                    <i class="fas fa-check-circle"></i> En uso actualmente
+                                </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <!-- Tooltips de estructura organizacional -->
+        {% for emp in empresas %}
+        <div id="org-tooltip-{{ emp.id }}" class="org-tooltip">
+            <div class="org-header">
+                <i class="fas fa-sitemap me-2"></i>Estructura Organizacional
+            </div>
+            <div class="org-content">
+                <div class="org-section">
+                    <strong class="d-block mb-2" style="color: #2196F3;">
+                        <i class="fas fa-bullseye me-2"></i>Uso / Objetivo
+                    </strong>
+                    <div class="text-muted">
+                        {{ emp.uso_descripcion or 'Sin descripción configurada' }}
+                    </div>
+                </div>
+
+                {% if emp.responsable_nombre or emp.responsable_puesto %}
+                <div class="org-responsable">
+                    <div class="mb-2">
+                        <strong>
+                            <i class="fas fa-user-tie me-2"></i>RESPONSABLE
+                        </strong>
+                    </div>
+                    <div class="text-dark">
+                        {% if emp.responsable_puesto %}{{ emp.responsable_puesto }}: {% endif %}
+                        <strong>{{ emp.responsable_nombre or 'No asignado' }}</strong>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        
+    {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            No hay empresas registradas en tu grupo. Crea la primera empresa.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let activeTooltip = null;
+
+function showOrgTooltip(event, empresaId) {
+    // Ocultar tooltip anterior
+    if (activeTooltip) {
+        activeTooltip.classList.remove('active');
+    }
+    
+    const tooltip = document.getElementById('org-tooltip-' + empresaId);
+    const card = event.currentTarget;
+    const rect = card.getBoundingClientRect();
+    
+    // Posicionar tooltip a la derecha de la tarjeta
+    const leftPos = rect.right + 20;
+    const topPos = rect.top + window.scrollY;
+    
+    // Verificar si hay espacio a la derecha, si no, mostrar a la izquierda
+    if (leftPos + 400 > window.innerWidth) {
+        tooltip.style.left = (rect.left - 420) + 'px';
+    } else {
+        tooltip.style.left = leftPos + 'px';
+    }
+    
+    tooltip.style.top = topPos + 'px';
+    
+    // Mostrar tooltip
+    tooltip.classList.add('active');
+    activeTooltip = tooltip;
+}
+
+function hideOrgTooltip(empresaId) {
+    const tooltip = document.getElementById('org-tooltip-' + empresaId);
+    setTimeout(() => {
+        if (activeTooltip === tooltip) {
+            tooltip.classList.remove('active');
+            activeTooltip = null;
+        }
+    }, 300);
+}
+</script>
+{% endblock %}

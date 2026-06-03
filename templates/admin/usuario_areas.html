@@ -1,4 +1,4 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 
 {% block title %}Usuarios y Áreas - ERP{% endblock %}
 
@@ -54,6 +54,7 @@
                     <thead class="table-dark">
                         <tr>
                             <th>Usuario</th>
+                            <th>Empresa</th>
                             <th>Puesto</th>
                             <th>Áreas Asignadas</th>
                             <th class="text-center"># Áreas</th>
@@ -63,9 +64,8 @@
                     <tbody>
                         {% for u in usuarios %}
                         <tr>
-                            <td>
-                                <strong>{{ u.usuario }}</strong>
-                            </td>
+                            <td><strong>{{ u.usuario }}</strong></td>
+                            <td><small class="text-muted">{{ u.empresa_nombre or '—' }}</small></td>
                             <td>{{ u.puesto or '-' }}</td>
                             <td>
                                 {% if u.areas_asignadas %}
@@ -84,7 +84,7 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <a href="{{ url_for('admin_usuario_asignar_areas', usuario_id=u.usuario_id) }}" 
+                                <a href="{{ url_for('admin_usuario_asignar_areas', usuario_id=u.usuario_id) }}"
                                    class="btn btn-sm btn-primary">
                                     <i class="fas fa-edit"></i> Editar
                                 </a>
@@ -92,7 +92,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="5" class="text-center text-muted py-4">
+                            <td colspan="6" class="text-center text-muted py-4">
                                 No hay usuarios registrados
                             </td>
                         </tr>
@@ -117,4 +117,42 @@
     </div>
     {% endif %}
 </div>
-{% endblock %}
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+const returnTo = urlParams.get('return_to');
+const areaId = urlParams.get('area_id');
+
+if (returnTo) {
+    const banner = document.createElement('div');
+    banner.className = 'alert alert-info alert-dismissible fade show mb-4';
+    banner.innerHTML = `
+        <i class="fas fa-info-circle me-2"></i>
+        <strong>Modo asignación rápida:</strong> Edita el usuario, asígnale el área y 
+        regresarás automáticamente al proceso.
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.container-fluid').prepend(banner);
+
+    document.querySelectorAll('a[href*="admin/usuario"]').forEach(link => {
+        const url = new URL(link.href);
+        url.searchParams.set('return_to', returnTo);
+        if (areaId) url.searchParams.set('area_id', areaId);
+        link.href = url.toString();
+    });
+}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% for category, message in messages %}
+{% if category == 'success' %}
+if (returnTo) {
+    setTimeout(() => {
+        window.location.href = returnTo;
+    }, 1500);
+}
+{% endif %}
+{% endfor %}
+{% endwith %}
+</script>
+
+{% endblock %}  

@@ -1,0 +1,153 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+  <h2 class="page-title">Configuración de Inventarios MP y PT - Mínimos y Máximos</h2>
+  <p class="text-muted mb-4">
+    Configura los niveles mínimos y máximos. El sistema generará órdenes automáticas cuando el stock esté por debajo del mínimo.
+  </p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- Leyenda -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-3"><span class="badge bg-danger">🔴 Bajo Mínimo</span> — Stock por debajo del mínimo</div>
+        <div class="col-md-3"><span class="badge bg-warning">🟡 Punto de Reorden</span> — Cerca del mínimo</div>
+        <div class="col-md-3"><span class="badge bg-success">🟢 OK</span> — Stock adecuado</div>
+        <div class="col-md-3"><span class="badge bg-secondary">⚪ Sin Configurar</span> — Mínimo = 0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <ul class="nav nav-tabs mb-3" id="tabsInventario">
+    <li class="nav-item">
+      <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabMP">
+        <i class="fas fa-box-open me-1"></i> Materia Prima (MP)
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPT">
+        <i class="fas fa-boxes me-1"></i> Productos Terminados (PT)
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- TAB MP -->
+    <div class="tab-pane fade show active" id="tabMP">
+      <form method="POST" action="{{ url_for('configurar_inventarios') }}">
+        <input type="hidden" name="tipo" value="mp">
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width:50px;">Estado</th>
+                <th style="width:250px;">Materia Prima</th>
+                <th style="width:100px;">Unidad</th>
+                <th style="width:120px;">Stock Actual</th>
+                <th style="width:150px;">Mínimo</th>
+                <th style="width:150px;">Máximo</th>
+                <th style="width:100px;">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in productos %}
+              <tr>
+                <input type="hidden" name="producto_base_id[]" value="{{ p.id }}">
+                <td class="text-center">
+                  {% if p.estado == 'bajo_minimo' %}<span class="badge bg-danger" title="Bajo mínimo">🔴</span>
+                  {% elif p.estado == 'punto_reorden' %}<span class="badge bg-warning" title="Punto de reorden">🟡</span>
+                  {% elif p.estado == 'sin_configurar' %}<span class="badge bg-secondary" title="Sin configurar">⚪</span>
+                  {% else %}<span class="badge bg-success" title="OK">🟢</span>{% endif %}
+                </td>
+                <td><strong>{{ p.materia_prima }}</strong></td>
+                <td class="text-muted small">{{ p.unidad or '—' }}</td>
+                <td class="text-end">
+                  <span class="{% if p.estado == 'bajo_minimo' %}text-danger fw-bold{% elif p.estado == 'punto_reorden' %}text-warning fw-bold{% endif %}">
+                    {{ "%.2f"|format(p.stock_actual) }}
+                  </span>
+                </td>
+                <td><input type="number" name="minimo[]" class="form-control form-control-sm" value="{{ "%.2f"|format(p.minimo_existencia) }}" step="0.01" min="0" placeholder="0.00"></td>
+                <td><input type="number" name="maximo[]" class="form-control form-control-sm" value="{{ "%.2f"|format(p.maximo_existencia) }}" step="0.01" min="0" placeholder="0.00"></td>
+                <td class="text-end">
+                  {% set diferencia = p.stock_actual - p.minimo_existencia %}
+                  <span class="{% if diferencia < 0 %}text-danger fw-bold{% elif diferencia < (p.minimo_existencia|float * 0.2) %}text-warning{% else %}text-success{% endif %}">
+                    {{ "%.2f"|format(diferencia) }}
+                  </span>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between mt-4">
+          <a href="{{ url_for('mostrar_inventario_mp') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Volver a Inventario</a>
+          <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-save"></i> Guardar MP</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- TAB PT -->
+    <div class="tab-pane fade" id="tabPT">
+      <form method="POST" action="{{ url_for('configurar_inventarios') }}">
+        <input type="hidden" name="tipo" value="pt">
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width:50px;">Estado</th>
+                <th style="width:300px;">Producto Terminado</th>
+                <th style="width:120px;">Stock Actual</th>
+                <th style="width:150px;">Mínimo</th>
+                <th style="width:150px;">Máximo</th>
+                <th style="width:100px;">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in productos_pt %}
+              <tr>
+                <input type="hidden" name="mercancia_id[]" value="{{ p.id }}">
+                <td class="text-center">
+                  {% if p.estado == 'bajo_minimo' %}<span class="badge bg-danger">🔴</span>
+                  {% elif p.estado == 'punto_reorden' %}<span class="badge bg-warning">🟡</span>
+                  {% elif p.estado == 'sin_configurar' %}<span class="badge bg-secondary">⚪</span>
+                  {% else %}<span class="badge bg-success">🟢</span>{% endif %}
+                </td>
+                <td><strong>{{ p.nombre }}</strong></td>
+                <td class="text-end">
+                  <span class="{% if p.estado == 'bajo_minimo' %}text-danger fw-bold{% elif p.estado == 'punto_reorden' %}text-warning fw-bold{% endif %}">
+                    {{ "%.2f"|format(p.stock_actual) }}
+                  </span>
+                </td>
+                <td><input type="number" name="minimo_pt[]" class="form-control form-control-sm" value="{{ "%.2f"|format(p.minimo_existencia) }}" step="0.01" min="0" placeholder="0.00"></td>
+                <td><input type="number" name="maximo_pt[]" class="form-control form-control-sm" value="{{ "%.2f"|format(p.maximo_existencia) }}" step="0.01" min="0" placeholder="0.00"></td>
+                <td class="text-end">
+                  {% set diferencia = p.stock_actual - p.minimo_existencia %}
+                  <span class="{% if diferencia < 0 %}text-danger fw-bold{% elif diferencia < (p.minimo_existencia|float * 0.2) %}text-warning{% else %}text-success{% endif %}">
+                    {{ "%.2f"|format(diferencia) }}
+                  </span>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between mt-4">
+          <a href="{{ url_for('mostrar_inventario_mp') }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Volver a Inventario</a>
+          <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-save"></i> Guardar PT</button>
+        </div>
+      </form>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

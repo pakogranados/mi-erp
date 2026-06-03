@@ -1,0 +1,102 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="page-title mb-1">
+                <i class="fas fa-warehouse"></i> Configuración de Almacenes
+            </h2>
+            <p class="text-muted small mb-0">Gestiona tus almacenes y ubicaciones físicas</p>
+        </div>
+        <a href="{{ url_for('almacen_nuevo') }}" class="btn btn-primary btn-lg">
+            <i class="fas fa-plus"></i> Nuevo Almacén
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% if almacenes and almacenes|length > 0 %}
+        <div class="row">
+            {% for alm in almacenes %}
+            <div class="col-md-6 col-lg-4 mb-4">
+                <div class="card h-100 border-primary shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-building"></i> {{ alm.nombre }}
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% if alm.codigo %}
+                        <p class="mb-2">
+                            <strong>Código:</strong> 
+                            <span class="badge bg-secondary">{{ alm.codigo }}</span>
+                        </p>
+                        {% endif %}
+                        
+                        <p class="mb-2">
+                            <strong>Tipo:</strong> 
+                            {% if alm.tipo == 'bodega' %}Bodega
+                            {% elif alm.tipo == 'cuarto_frio' %}Cuarto Frío
+                            {% elif alm.tipo == 'area_produccion' %}Área de Producción
+                            {% else %}Otro{% endif %}
+                        </p>
+                        
+                        <p class="mb-2">
+                            <strong>Dimensiones:</strong> 
+                            {{ "%.1f"|format(alm.ancho_metros or 0) }}m × 
+                            {{ "%.1f"|format(alm.largo_metros or 0) }}m × 
+                            {{ "%.1f"|format(alm.alto_metros or 0) }}m
+                        </p>
+                        
+                        <hr>
+                        
+                        <div class="d-flex justify-content-between text-center mb-3">
+                            <div>
+                                <div class="h4 mb-0 text-primary">{{ alm.total_elementos or 0 }}</div>
+                                <small class="text-muted">Elementos</small>
+                            </div>
+                            <div>
+                                <div class="h4 mb-0 text-success">{{ alm.total_ubicaciones or 0 }}</div>
+                                <small class="text-muted">Ubicaciones</small>
+                            </div>
+                        </div>
+                        
+                        {% if alm.descripcion %}
+                        <p class="small text-muted mb-3">{{ alm.descripcion[:100] }}...</p>
+                        {% endif %}
+                        
+                        <div class="d-grid gap-2">
+                            <a href="{{ url_for('almacen_mapa_visual', almacen_id=alm.id) }}" 
+                               class="btn btn-info btn-sm">
+                                <i class="fas fa-map"></i> Ver Mapa
+                            </a>
+                            <a href="{{ url_for('almacen_editor', almacen_id=alm.id) }}" 
+                               class="btn btn-primary btn-sm">
+                                <i class="fas fa-edit"></i> Editar Layout
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-warehouse fa-4x text-muted mb-3"></i>
+                <h5 class="text-muted">No hay almacenes configurados</h5>
+                <p class="text-muted mb-4">Crea tu primer almacén para gestionar ubicaciones físicas</p>
+                <a href="{{ url_for('almacen_nuevo') }}" class="btn btn-primary btn-lg">
+                    <i class="fas fa-plus"></i> Crear Primer Almacén
+                </a>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

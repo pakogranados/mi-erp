@@ -1,0 +1,127 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h2 class="page-title">
+        <i class="fas fa-warehouse"></i> Recepción de Almacén
+    </h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- COMPRAS PENDIENTES DE RECEPCIÓN -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning">
+            <h5 class="mb-0">
+                <i class="fas fa-clock"></i> Pendientes de Recepción
+                <span class="badge bg-dark">{{ compras_pendientes|length }}</span>
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if compras_pendientes and compras_pendientes|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Fecha</th>
+                                <th>No. Factura</th>
+                                <th>Proveedor</th>
+                                <th class="text-center">Items</th>
+                                <th class="text-center">Unidades</th>
+                                <th class="text-end">Subtotal</th>
+                                <th>Estado</th>
+                                <th class="text-center">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in compras_pendientes %}
+                            <tr>
+                                <td>{{ c.fecha_fmt }}</td>
+                                <td>
+                                    <span class="badge bg-light text-dark">{{ c.numero_factura }}</span>
+                                </td>
+                                <td>{{ c.proveedor }}</td>
+                                <td class="text-center">
+                                    <span class="badge bg-info">{{ c.total_items }}</span>
+                                </td>
+                                <td class="text-center">{{ "%.0f"|format(c.total_unidades) }}</td>
+                                <td class="text-end">${{ "{:,.2f}".format(c.subtotal|float) }}</td>
+                                <td>
+                                    {% if c.estado == 'pendiente' %}
+                                        <span class="badge bg-warning">Pendiente</span>
+                                    {% elif c.estado == 'en_recepcion' %}
+                                        <span class="badge bg-primary">En Recepción</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <a href="{{ url_for('almacen_recibir_compra', compra_id=c.id) }}" 
+                                       class="btn btn-sm btn-primary">
+                                        <i class="fas fa-box-open"></i> Recibir
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    No hay compras pendientes de recepción.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- COMPRAS RECIBIDAS RECIENTEMENTE -->
+    <div class="card">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-check-circle"></i> Recibidas Recientemente
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if compras_recibidas and compras_recibidas|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Compra</th>
+                                <th>No. Factura</th>
+                                <th>Proveedor</th>
+                                <th>Fecha Recepción</th>
+                                <th>Recibido Por</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in compras_recibidas %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for('detalle_compra', id=c.id) }}" 
+                                       class="text-decoration-none">
+                                        #{{ c.id }}
+                                    </a>
+                                </td>
+                                <td>{{ c.numero_factura }}</td>
+                                <td>{{ c.proveedor }}</td>
+                                <td>{{ c.recepcion_fmt }}</td>
+                                <td>{{ c.recibido_por }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    No hay recepciones registradas aún.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

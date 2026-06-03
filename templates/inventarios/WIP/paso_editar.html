@@ -1,4 +1,4 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 {% block title %}Editar Paso: {{ paso.nombre }}{% endblock %}
 
 {% block content %}
@@ -152,8 +152,8 @@
           <label class="form-label">Materia Prima *</label>
           <select class="form-select" id="modalMpSelect">
             <option value="">-- Seleccionar --</option>
-            {% for mp in mps %}
-              <option value="{{ mp.id }}" data-nombre="{{ mp.nombre }}">{{ mp.nombre }}</option>
+            {% for mp in materias_primas %}
+              <option value="{{ mp.id }}">{{ mp.nombre }}</option>
             {% endfor %}
           </select>
         </div>
@@ -186,40 +186,42 @@
 </div>
 
 <script>
-let materialesDetectados = [
-  {% for mat in materiales_actuales %}
-  {
-    mercancia_id: {{ mat.mercancia_id }},
-    nombre: "{{ mat.mp_nombre }}",
-    nombre_detectado: "{{ mat.mp_nombre }}",
-    cantidad: {{ mat.cantidad_por_lote }},
-    unidad: "gramos",
-    confianza: "existente",
-    encontrado: true
-  }{% if not loop.last %},{% endif %}
-  {% endfor %}
-];
+let materialesDetectados = [];
 
+// ============ MOSTRAR MATERIALES EN TABLA ============
 function mostrarMateriales(materiales) {
   const tbody = document.getElementById('tbodyMateriales');
   tbody.innerHTML = '';
-  
+
+  if (materiales.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="text-center text-muted">
+          <i class="fas fa-info-circle"></i> No hay materiales agregados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
   materiales.forEach((mat, index) => {
     const row = `
       <tr>
         <td>${mat.nombre}</td>
         <td class="text-center">
-          <input type="number" class="form-control form-control-sm text-center" 
+          <input type="number" class="form-control form-control-sm text-center"
                  value="${mat.cantidad}" step="any" min="0"
                  onchange="actualizarCantidad(${index}, this.value)">
         </td>
         <td class="text-center">
-          <input type="text" class="form-control form-control-sm text-center" 
-                 value="${mat.unidad}" 
-                 onchange="actualizarUnidad(${index}, this.value)">
+          <input type="text" class="form-control form-control-sm text-center"
+                 value="${mat.unidad}" readonly>
         </td>
         <td class="text-center">
-          <button type="button" class="btn btn-sm btn-outline-danger" 
+          <span class="badge bg-success">$${(mat.cantidad * (mat.precio_unitario || 0)).toFixed(2)}</span>
+        </td>
+        <td class="text-center">
+          <button type="button" class="btn btn-sm btn-outline-danger"
                   onclick="eliminarMaterial(${index})">
             <i class="fas fa-trash"></i>
           </button>
@@ -228,18 +230,13 @@ function mostrarMateriales(materiales) {
     `;
     tbody.insertAdjacentHTML('beforeend', row);
   });
-  
+
   actualizarJSON();
 }
 
 function actualizarCantidad(index, valor) {
   materialesDetectados[index].cantidad = parseFloat(valor) || 0;
-  actualizarJSON();
-}
-
-function actualizarUnidad(index, valor) {
-  materialesDetectados[index].unidad = valor;
-  actualizarJSON();
+  mostrarMateriales(materialesDetectados);
 }
 
 function eliminarMaterial(index) {
@@ -251,142 +248,187 @@ function actualizarJSON() {
   document.getElementById('materialesJson').value = JSON.stringify(materialesDetectados);
 }
 
-// Cargar materiales al iniciar
-mostrarMateriales(materialesDetectados);
-
-// Agregar material
-document.getElementById('btnAgregarMaterial').addEventListener('click', function() {
-    const modal = new bootstrap.Modal(document.getElementById('modalAgregarMaterial'));
-    modal.show();
-});
-
-document.getElementById('btnConfirmarAgregar').addEventListener('click', function() {
-    const select = document.getElementById('modalMpSelect');
-    const mpId = select.value;
-    const mpNombre = select.options[select.selectedIndex]?.dataset.nombre || '';
-    const cantidad = parseFloat(document.getElementById('modalCantidad').value);
-    const unidad = document.getElementById('modalUnidad').value.trim();
-    
-    if (!mpId) {
-        alert('Selecciona una materia prima');
-        return;
-    }
-    
-    if (isNaN(cantidad) || cantidad <= 0) {
-        alert('Cantidad inválida');
-        return;
-    }
-    
-    const existe = materialesDetectados.find(m => m.mercancia_id == mpId);
-    if (existe) {
-        alert('Este material ya está agregado');
-        return;
-    }
-    
-    materialesDetectados.push({
-        mercancia_id: parseInt(mpId),
-        nombre: mpNombre,
-        nombre_detectado: mpNombre,
-        cantidad: cantidad,
-        unidad: unidad,
-        confianza: 'manual',
-        encontrado: true
-    });
-    
-    mostrarMateriales(materialesDetectados);
-    
-    bootstrap.Modal.getInstance(document.getElementById('modalAgregarMaterial')).hide();
-    document.getElementById('modalMpSelect').value = '';
-    document.getElementById('modalCantidad').value = '1';
-    document.getElementById('modalUnidad').value = 'gramos';
-});
-
 // ============ CARGAR INFO DE MP AL SELECCIONAR ============
+// NOTA: mpId aquí es producto_base_id (del combo)
 document.getElementById('modalMpSelect').addEventListener('change', async function() {
-    const mpId = this.value;
-    const infoDiv = document.getElementById('infoMP');
-    const costoPrevioDiv = document.getElementById('costoPrevio');
-    
-    if (!mpId) {
-        infoDiv.classList.add('d-none');
-        costoPrevioDiv.classList.add('d-none');
-        document.getElementById('modalUnidad').value = '';
-        return;
+  const pbId = this.value;
+
+  const infoDiv = document.getElementById('infoMP');
+  const costoPrevioDiv = document.getElementById('costoPrevio');
+
+  // limpiar UI
+  document.getElementById('modalCantidad').value = '1';
+  document.getElementById('modalCantidad').dataset.disponible = '0';
+  document.getElementById('modalCantidad').dataset.precioUnitario = '0';
+  document.getElementById('modalCantidad').dataset.nombre = '';
+  document.getElementById('modalUnidad').value = '';
+
+  if (!pbId) {
+    infoDiv.classList.add('d-none');
+    costoPrevioDiv.classList.add('d-none');
+    return;
+  }
+
+  try {
+    const response = await fetch(`/inventarios/movimientos-producto-base/${pbId}/info?almacen=1`);
+    const data = await response.json();
+
+    if (!data.success || !data.item) {
+      infoDiv.classList.add('d-none');
+      costoPrevioDiv.classList.add('d-none');
+      alert('Error al cargar información del material');
+      return;
     }
-    
-    try {
-        const response = await fetch(`/wip/mercancia/${mpId}/info`);
-        const data = await response.json();
-        
-        if (data.success) {
-            const mp = data.mercancia;
-            
-            // Mostrar info
-            document.getElementById('infoNombre').textContent = mp.nombre;
-            document.getElementById('infoUnidad').textContent = mp.unidad_base;
-            document.getElementById('infoPrecio').textContent = mp.precio_por_unidad_base.toFixed(4);
-            document.getElementById('infoPrecioUnidad').textContent = mp.unidad_base;
-            document.getElementById('infoEjemplo').textContent = mp.ejemplo_calculo;
-            infoDiv.classList.remove('d-none');
-            
-            // Auto-completar unidad
-            document.getElementById('modalUnidad').value = mp.unidad_base;
-            
-            // Guardar precio para cálculo
-            document.getElementById('modalCantidad').dataset.precioUnitario = mp.precio_por_unidad_base;
-            
-            // Calcular costo al cambiar cantidad
-            calcularCosto();
-        }
-    } catch (error) {
-        console.error('Error al cargar info:', error);
-        alert('Error al cargar información del material');
-    }
+
+    const item = data.item; // {id, nombre, disponible, precio_unitario}
+
+    // Mostrar info
+    document.getElementById('infoNombre').textContent = item.nombre || '';
+    document.getElementById('infoDisponible').textContent = Number(item.disponible || 0).toFixed(2);
+    document.getElementById('infoPrecio').textContent = Number(item.precio_unitario || 0).toFixed(4);
+
+    // Unidad: si no la tienes, deja "N/A" (o pon "unidades")
+    if (document.getElementById('infoUnidad')) document.getElementById('infoUnidad').textContent = 'N/A';
+    if (document.getElementById('infoPrecioUnidad')) document.getElementById('infoPrecioUnidad').textContent = 'N/A';
+    if (document.getElementById('infoEjemplo')) document.getElementById('infoEjemplo').textContent = '';
+
+    infoDiv.classList.remove('d-none');
+
+    // Guardar valores para cálculos posteriores
+    document.getElementById('modalCantidad').dataset.disponible = Number(item.disponible || 0);
+    document.getElementById('modalCantidad').dataset.precioUnitario = Number(item.precio_unitario || 0);
+    document.getElementById('modalCantidad').dataset.nombre = item.nombre || '';
+
+    // Si quieres que modalUnidad tenga algo, pon un texto fijo por ahora
+    document.getElementById('modalUnidad').value = 'N/A';
+
+    calcularCosto();
+    validarInventario();
+
+  } catch (error) {
+    console.error('Error al cargar info:', error);
+    alert('Error al cargar información del material');
+  }
 });
 
 // Calcular costo en tiempo real
-document.getElementById('modalCantidad').addEventListener('input', calcularCosto);
+document.getElementById('modalCantidad').addEventListener('input', function() {
+  calcularCosto();
+  validarInventario();
+});
 
 function calcularCosto() {
-    const cantidad = parseFloat(document.getElementById('modalCantidad').value) || 0;
-    const precioUnitario = parseFloat(document.getElementById('modalCantidad').dataset.precioUnitario) || 0;
-    const costo = cantidad * precioUnitario;
-    
-    if (cantidad > 0 && precioUnitario > 0) {
-        document.getElementById('costoEstimado').textContent = costo.toFixed(2);
-        document.getElementById('costoPrevio').classList.remove('d-none');
-    } else {
-        document.getElementById('costoPrevio').classList.add('d-none');
-    }
+  const cantidad = parseFloat(document.getElementById('modalCantidad').value) || 0;
+  const precioUnitario = parseFloat(document.getElementById('modalCantidad').dataset.precioUnitario) || 0;
+  const costo = cantidad * precioUnitario;
+
+  if (cantidad > 0 && precioUnitario > 0) {
+    document.getElementById('costoEstimado').textContent = costo.toFixed(2);
+    document.getElementById('costoPrevio').classList.remove('d-none');
+  } else {
+    document.getElementById('costoPrevio').classList.add('d-none');
+  }
 }
 
-// Cargar responsable al cambiar área
-document.querySelector('select[name="area_id"]').addEventListener('change', async function() {
-    const areaId = this.value;
-    const inputResponsable = document.getElementById('inputResponsable');
-    const badgePuesto = document.getElementById('badgePuesto');
-    const infoResponsable = document.getElementById('infoResponsable');
-    
+function validarInventario() {
+  const cantidad = parseFloat(document.getElementById('modalCantidad').value) || 0;
+  const disponible = parseFloat(document.getElementById('modalCantidad').dataset.disponible) || 0;
+  const alerta = document.getElementById('alertaInventario');
+  const btnConfirmar = document.getElementById('btnConfirmarAgregar');
+
+  if (cantidad > disponible) {
+    document.getElementById('disponibleActual').textContent =
+      disponible + ' ' + (document.getElementById('modalUnidad').value || '');
+    alerta.classList.remove('d-none');
+    btnConfirmar.disabled = true;
+  } else {
+    alerta.classList.add('d-none');
+    btnConfirmar.disabled = false;
+  }
+}
+
+// ============ CONFIRMAR AGREGAR MATERIAL ============
+document.getElementById('btnConfirmarAgregar').addEventListener('click', function() {
+  const pbId = document.getElementById('modalMpSelect').value; // producto_base_id
+  const cantidad = parseFloat(document.getElementById('modalCantidad').value) || 0;
+  const unidad = document.getElementById('modalUnidad').value || '';
+  const precio = parseFloat(document.getElementById('modalCantidad').dataset.precioUnitario) || 0;
+  const nombre = document.getElementById('modalCantidad').dataset.nombre || '';
+
+  if (!pbId || cantidad <= 0) {
+    alert('Por favor completa todos los campos');
+    return;
+  }
+
+  // Guardamos como producto_base_id (no mercancia_id)
+  materialesDetectados.push({
+    producto_base_id: pbId,
+    nombre: nombre,
+    cantidad: cantidad,
+    unidad: unidad,
+    precio_unitario: precio
+  });
+
+  mostrarMateriales(materialesDetectados);
+
+  // Cerrar modal y limpiar
+  bootstrap.Modal.getInstance(document.getElementById('modalAgregarMaterial')).hide();
+  document.getElementById('modalMpSelect').value = '';
+  document.getElementById('modalCantidad').value = '1';
+  document.getElementById('infoMP').classList.add('d-none');
+  document.getElementById('costoPrevio').classList.add('d-none');
+});
+
+// ============ CARGAR RESPONSABLE(S) AL SELECCIONAR ÁREA ============
+document.getElementById('selectArea').addEventListener('change', async function() {
+  const areaId = this.value;
+  const inputResponsable = document.getElementById('inputResponsable');
+  const hiddenResponsable = document.getElementById('hiddenResponsable');
+  const badgeResponsables = document.getElementById('badgeResponsables');
+  const infoResponsables = document.getElementById('infoResponsables');
+
+  if (!areaId) {
     inputResponsable.value = '';
-    badgePuesto.textContent = '';
-    infoResponsable.textContent = '';
-    
-    if (!areaId) return;
-    
-    try {
-        const response = await fetch(`/wip/areas/${areaId}/responsable`);
-        const data = await response.json();
-        
-        if (data.success) {
-            const resp = data.responsable;
-            inputResponsable.value = resp.nombre;
-            badgePuesto.textContent = resp.puesto;
-            infoResponsable.textContent = `📧 ${resp.correo}`;
-            infoResponsable.className = 'text-success';
-        }
-    } catch (error) {
-        console.error('Error:', error);
+    hiddenResponsable.value = '';
+    badgeResponsables.textContent = '';
+    infoResponsables.textContent = '';
+    return;
+  }
+
+  try {
+    const response = await fetch(`/inventarios/areas/${areaId}/responsables`);
+    const data = await response.json();
+
+    if (data.success && data.responsables.length > 0) {
+      const nombres = data.responsables.map(r => r.nombre).join(', ');
+      inputResponsable.value = nombres;
+      hiddenResponsable.value = nombres;
+      badgeResponsables.textContent = `${data.responsables.length} responsable(s)`;
+
+      const responsablePrincipal = data.responsables.find(r => r.es_responsable);
+      if (responsablePrincipal) {
+        infoResponsables.textContent = `Responsable principal: ${responsablePrincipal.nombre}`;
+      }
+    } else {
+      inputResponsable.value = 'Sin responsable asignado';
+      hiddenResponsable.value = '';
+      badgeResponsables.textContent = '⚠️';
+      infoResponsables.innerHTML = '<span class="text-danger">Esta área no tiene responsables. <a href="/admin/usuario-areas" target="_blank">Asignar ahora</a></span>';
     }
+  } catch (error) {
+    console.error('Error al cargar responsables:', error);
+    inputResponsable.value = 'Error al cargar';
+    hiddenResponsable.value = '';
+  }
+});
+
+// Validar antes de enviar
+document.getElementById('formPaso').addEventListener('submit', function(e) {
+  if (materialesDetectados.length === 0) {
+    if (!confirm('No hay materiales agregados. ¿Deseas continuar sin materiales?')) {
+      e.preventDefault();
+    }
+  }
 });
 </script>
 {% endblock %}

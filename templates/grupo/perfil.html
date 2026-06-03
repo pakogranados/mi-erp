@@ -1,0 +1,222 @@
+{% extends "sidebar_multitenant.html" %}
+{% block title %}Perfil del Grupo Empresarial{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h2 fw-bold mb-1">
+                <i class="fas fa-building text-primary"></i> Grupo Empresarial
+            </h1>
+            <p class="text-muted mb-0">Estructura organizacional y vínculos del grupo</p>
+        </div>
+    </div>
+
+   <!-- ORGANIGRAMA -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom">
+            <h5 class="mb-0 fw-bold"><i class="fas fa-sitemap text-primary me-2"></i>Organigrama del Grupo</h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-column align-items-center gap-3">
+
+                <!-- HOLDING -->
+                {% for e in empresas if e.tipo_empresa == 'holding' %}
+                <div class="card border-primary shadow-sm text-center" style="width:280px;">
+                    <div class="card-body py-3">
+                        {% if e.logo_url %}
+                        <img src="{{ e.logo_url }}" alt="{{ e.nombre }}" class="rounded-circle mb-2" style="width:60px;height:60px;object-fit:cover;">
+                        {% else %}
+                        <div class="rounded-circle bg-primary d-flex align-items-center justify-content-center mx-auto mb-2" style="width:60px;height:60px;">
+                            <i class="fas fa-building text-white fa-xl"></i>
+                        </div>
+                        {% endif %}
+                        <span class="badge bg-primary mb-1">Holding</span>
+                        <h6 class="fw-bold mb-0">{{ e.nombre }}</h6>
+                        {% if e.responsable_nombre %}
+                        <small class="text-muted">{{ e.responsable_nombre }}</small>
+                        {% endif %}
+                        <div class="mt-1">
+                            <small class="badge bg-light text-dark border">{{ e.total_usuarios }} usuarios</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Línea conectora -->
+                <div style="width:2px;height:30px;background:#dee2e6;"></div>
+                {% endfor %}
+
+                <!-- NIVEL MEDIO -->
+                <div class="d-flex gap-4 flex-wrap justify-content-center">
+                    {% for e in empresas if e.tipo_empresa in ('produccion', 'administracion', 'logistica') %}
+                    <div class="d-flex flex-column align-items-center">
+                        <div style="width:2px;height:20px;background:#dee2e6;"></div>
+                        <div class="card border-success shadow-sm text-center" style="width:220px;">
+                            <div class="card-body py-3">
+                                {% if e.logo_url %}
+                                <img src="{{ e.logo_url }}" alt="{{ e.nombre }}" class="rounded-circle mb-2" style="width:50px;height:50px;object-fit:cover;">
+                                {% else %}
+                                <div class="rounded-circle bg-success d-flex align-items-center justify-content-center mx-auto mb-2" style="width:50px;height:50px;">
+                                    <i class="fas fa-industry text-white"></i>
+                                </div>
+                                {% endif %}
+                                <span class="badge bg-success mb-1">
+                                    {% if e.tipo_empresa == 'produccion' %}Producción
+                                    {% elif e.tipo_empresa == 'administracion' %}Administración
+                                    {% else %}Logística{% endif %}
+                                </span>
+                                <h6 class="fw-bold mb-0 small">{{ e.nombre }}</h6>
+                                {% if e.responsable_nombre %}
+                                <small class="text-muted">{{ e.responsable_nombre }}</small>
+                                {% endif %}
+                                <div class="mt-1">
+                                    <small class="badge bg-light text-dark border">{{ e.total_usuarios }} usuarios</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Línea conectora -->
+                <div style="width:2px;height:30px;background:#dee2e6;"></div>
+
+                <!-- PUNTOS DE VENTA -->
+                <div class="d-flex gap-4 flex-wrap justify-content-center">
+                    {% for e in empresas if e.tipo_empresa == 'punto_venta' %}
+                    <div class="d-flex flex-column align-items-center">
+                        <div style="width:2px;height:20px;background:#dee2e6;"></div>
+                        <div class="card border-warning shadow-sm text-center {% if e.id == empresa_activa.id %}border-3{% endif %}" style="width:200px;">
+                            <div class="card-body py-3">
+                                {% if e.logo_url %}
+                                <img src="{{ e.logo_url }}" alt="{{ e.nombre }}" class="rounded-circle mb-2" style="width:45px;height:45px;object-fit:cover;">
+                                {% else %}
+                                <div class="rounded-circle bg-warning d-flex align-items-center justify-content-center mx-auto mb-2" style="width:45px;height:45px;">
+                                    <i class="fas fa-store text-white"></i>
+                                </div>
+                                {% endif %}
+                                <span class="badge bg-warning text-dark mb-1">Punto de Venta</span>
+                                <h6 class="fw-bold mb-0 small">{{ e.nombre }}</h6>
+                                {% if e.responsable_nombre %}
+                                <small class="text-muted">{{ e.responsable_nombre }}</small>
+                                {% endif %}
+                                <div class="mt-1">
+                                    <small class="badge bg-light text-dark border">{{ e.total_usuarios }} usuarios</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TARJETAS DE EMPRESAS -->
+    <div class="row g-4 mb-4">
+        {% for e in empresas %}
+        <div class="col-md-6 col-xl-3">
+            <div class="card border-0 shadow-sm h-100 {% if e.id == empresa_activa.id %}border border-primary border-2{% endif %}">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        {% if e.logo_url %}
+                        <img src="{{ e.logo_url }}" alt="{{ e.nombre }}" class="rounded-circle me-3" style="width:55px;height:55px;object-fit:cover;">
+                        {% else %}
+                        <div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center me-3" style="width:55px;height:55px;">
+                            <i class="fas fa-building text-white"></i>
+                        </div>
+                        {% endif %}
+                        <div>
+                            <h6 class="fw-bold mb-0">{{ e.nombre }}</h6>
+                            <span class="badge 
+                                {% if e.tipo_empresa == 'holding' %}bg-primary
+                                {% elif e.tipo_empresa == 'produccion' %}bg-success
+                                {% elif e.tipo_empresa == 'punto_venta' %}bg-warning text-dark
+                                {% else %}bg-secondary{% endif %}">
+                                {{ e.tipo_empresa|replace('_',' ')|title }}
+                            </span>
+                            {% if e.id == empresa_activa.id %}
+                            <span class="badge bg-info ms-1">Activa</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {% if e.uso_descripcion %}
+                    <p class="text-muted small mb-2">{{ e.uso_descripcion }}</p>
+                    {% endif %}
+
+                    <hr class="my-2">
+                    <div class="text-end">
+                        <a href="{{ url_for('editar_perfil_empresa', empresa_id=e.id) }}" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-edit me-1"></i> Editar perfil
+                        </a>
+                    </div>
+
+                    <hr class="my-2">
+
+                    <!-- Usuarios de la empresa -->
+                    <div class="small">
+                        {% if e.rfc %}<div><i class="fas fa-id-card text-muted me-1"></i> {{ e.rfc }}</div>{% endif %}
+                        {% if e.telefono %}<div><i class="fas fa-phone text-muted me-1"></i> {{ e.telefono }}</div>{% endif %}
+                        {% if e.email %}<div><i class="fas fa-envelope text-muted me-1"></i> {{ e.email }}</div>{% endif %}
+                        {% if e.direccion %}<div><i class="fas fa-map-marker-alt text-muted me-1"></i> {{ e.direccion }}</div>{% endif %}
+                    </div>
+
+                    <hr class="my-2">
+
+                    <!-- Usuarios de la empresa -->
+                    <div class="small">
+                        <strong class="text-muted">Equipo ({{ e.total_usuarios }}):</strong>
+                        {% for u in usuarios if u.empresa_id == e.id %}
+                        <div class="d-flex align-items-center mt-1">
+                            <div class="rounded-circle bg-light border d-flex align-items-center justify-content-center me-2" style="width:28px;height:28px;font-size:0.7rem;font-weight:bold;">
+                                {{ u.nombre[0]|upper }}
+                            </div>
+                            <div>
+                                <span class="fw-medium">{{ u.nombre }}</span>
+                                {% if u.puesto %}<br><span class="text-muted">{{ u.puesto }}</span>{% endif %}
+                                <span class="badge {% if u.rol == 'admin' %}bg-danger{% else %}bg-secondary{% endif %} ms-1" style="font-size:0.6rem;">{{ u.rol }}</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- VÍNCULOS B2B -->
+    {% if vinculos %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom">
+            <h5 class="mb-0 fw-bold"><i class="fas fa-exchange-alt text-info me-2"></i>Vínculos Comerciales B2B</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Proveedor</th>
+                        <th></th>
+                        <th>Cliente</th>
+                        <th>Días Crédito</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for v in vinculos %}
+                    <tr>
+                        <td><strong>{{ v.proveedor_nombre }}</strong></td>
+                        <td class="text-center"><i class="fas fa-arrow-right text-success"></i></td>
+                        <td><strong>{{ v.cliente_nombre }}</strong></td>
+                        <td><span class="badge bg-light text-dark border">{{ v.dias_credito }} días</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

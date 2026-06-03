@@ -1,8 +1,8 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 
 {% block content %}
 <div class="container-fluid">
-  <h2 class="mb-4">Órdenes de Producción</h2>
+  <h2 class="page-title">Órdenes de Producción</h2>
 
   <div class="mb-3 text-end">
     <a href="{{ url_for('new_production') }}" class="btn btn-primary">➕ Nueva Producción</a>

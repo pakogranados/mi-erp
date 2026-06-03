@@ -1,7 +1,7 @@
 """
 Sistema de Órdenes de Compra Automáticas
 Genera órdenes basadas en:
-1. Stock bajo mínimo
+1. Stock total por MATERIA PRIMA (producto_base) bajo mínimo
 2. Proyección de producción
 3. Solicitudes especiales
 4. Punto de reorden
@@ -14,7 +14,7 @@ import mysql.connector
 def conexion_db():
     """Conexión a la base de datos"""
     return mysql.connector.connect(
-        host='localhost',  # Cambiar según entorno
+        host='localhost',
         user='root',
         password='',
         database='miapp',
@@ -45,88 +45,155 @@ def generar_folio_oc_auto(empresa_id):
     
     return folio
 
+def calcular_stock_total_materia_prima(empresa_id, producto_base_id):
+    """
+    Calcula el stock TOTAL de una materia prima sumando TODAS sus presentaciones
+    """
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    cursor.execute("""
+        SELECT COALESCE(SUM(i.disponible_base), 0) as stock_total
+        FROM mercancia m
+        LEFT JOIN inventario i ON i.mercancia_id = m.id AND i.empresa_id = %s
+        WHERE m.producto_base_id = %s
+          AND m.empresa_id = %s
+          AND m.activo = 1
+    """, (empresa_id, producto_base_id, empresa_id))
+    
+    resultado = cursor.fetchone()
+    stock_total = Decimal(str(resultado['stock_total'])) if resultado else Decimal('0')
+    
+    cursor.close()
+    db.close()
+    
+    return stock_total
+
+def obtener_presentacion_preferida(empresa_id, producto_base_id):
+    """
+    Obtiene la presentación preferida de compra (la más comprada o la primera registrada)
+    """
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    # Intentar obtener la más comprada
+    cursor.execute("""
+        SELECT m.id, m.nombre
+        FROM mercancia m
+        LEFT JOIN detalle_compra dc ON dc.mercancia_id = m.id
+        WHERE m.producto_base_id = %s
+          AND m.empresa_id = %s
+          AND m.activo = 1
+        GROUP BY m.id, m.nombre
+        ORDER BY COUNT(dc.id) DESC, m.id ASC
+        LIMIT 1
+    """, (producto_base_id, empresa_id))
+    
+    presentacion = cursor.fetchone()
+    
+    cursor.close()
+    db.close()
+    
+    return presentacion
+
 def calcular_necesidades_compra(empresa_id):
     """
-    Calcula qué mercancías necesitan comprarse
-    Retorna lista de diccionarios con: mercancia_id, cantidad_sugerida, criterio, etc.
+    Calcula qué MATERIAS PRIMAS necesitan comprarse
+    Retorna lista de diccionarios con: producto_base_id, mercancia_id (presentación), cantidad_sugerida, etc.
     """
     db = conexion_db()
     cursor = db.cursor(dictionary=True)
     
     necesidades = []
     
-    # ===== CRITERIO 1: Stock bajo mínimo =====
+    # ===== CRITERIO 1: Stock total de MATERIA PRIMA bajo mínimo =====
     cursor.execute("""
         SELECT 
-            m.id as mercancia_id,
-            m.nombre,
-            m.producto_base_id,
-            m.minimo_existencia,
-            m.maximo_existencia,
-            COALESCE(i.disponible_base, 0) as stock_actual,
-            (m.maximo_existencia - COALESCE(i.disponible_base, 0)) as cantidad_sugerida
-        FROM mercancia m
-        LEFT JOIN inventario i ON i.mercancia_id = m.id AND i.empresa_id = %s
-        WHERE m.empresa_id = %s
-          AND m.activo = 1
-          AND m.minimo_existencia > 0
-          AND COALESCE(i.disponible_base, 0) < m.minimo_existencia
-    """, (empresa_id, empresa_id))
+            pb.id as producto_base_id,
+            pb.nombre as materia_prima,
+            pb.minimo_existencia,
+            pb.maximo_existencia,
+            pb.subcuenta_id
+        FROM producto_base pb
+        WHERE pb.empresa_id = %s
+          AND pb.activo = 1
+          AND pb.minimo_existencia > 0
+    """, (empresa_id,))
     
     for row in cursor.fetchall():
-        necesidades.append({
-            'mercancia_id': row['mercancia_id'],
-            'producto_base_id': row['producto_base_id'],
-            'descripcion': row['nombre'],
-            'cantidad_sugerida': max(row['cantidad_sugerida'], 0),
-            'stock_actual': row['stock_actual'],
-            'stock_minimo': row['minimo_existencia'],
-            'stock_maximo': row['maximo_existencia'],
-            'criterio': 'bajo_minimo',
-            'prioridad': 1  # Alta prioridad
-        })
+        producto_base_id = row['producto_base_id']
+        
+        # Calcular stock TOTAL de esta materia prima (suma de todas presentaciones)
+        stock_total = calcular_stock_total_materia_prima(empresa_id, producto_base_id)
+        minimo = Decimal(str(row['minimo_existencia']))
+        maximo = Decimal(str(row['maximo_existencia']))
+        
+        # ¿Está bajo el mínimo?
+        if stock_total < minimo:
+            # Obtener presentación preferida para comprar
+            presentacion = obtener_presentacion_preferida(empresa_id, producto_base_id)
+            
+            if presentacion:
+                cantidad_sugerida = max(maximo - stock_total, Decimal('0'))
+                
+                necesidades.append({
+                    'producto_base_id': producto_base_id,
+                    'mercancia_id': presentacion['id'],
+                    'descripcion': f"{presentacion['nombre']} (MP: {row['materia_prima']})",
+                    'materia_prima': row['materia_prima'],
+                    'cantidad_sugerida': cantidad_sugerida,
+                    'stock_actual': stock_total,
+                    'stock_minimo': minimo,
+                    'stock_maximo': maximo,
+                    'criterio': 'mp_bajo_minimo',
+                    'prioridad': 1  # Alta prioridad
+                })
     
-    # ===== CRITERIO 2: Proyección de producción =====
-    # TODO: Implementar análisis de órdenes de producción futuras
-    # Por ahora dejamos vacío, se implementará después
-    
-    # ===== CRITERIO 3: Solicitudes especiales =====
-    # TODO: Implementar sistema de solicitudes manuales
-    # Por ahora dejamos vacío
-    
-    # ===== CRITERIO 4: Punto de reorden (stock cercano al mínimo) =====
+    # ===== CRITERIO 2: Punto de reorden (stock cercano al mínimo - 20% sobre mínimo) =====
     cursor.execute("""
         SELECT 
-            m.id as mercancia_id,
-            m.nombre,
-            m.producto_base_id,
-            m.minimo_existencia,
-            m.maximo_existencia,
-            COALESCE(i.disponible_base, 0) as stock_actual,
-            (m.maximo_existencia - COALESCE(i.disponible_base, 0)) as cantidad_sugerida
-        FROM mercancia m
-        LEFT JOIN inventario i ON i.mercancia_id = m.id AND i.empresa_id = %s
-        WHERE m.empresa_id = %s
-          AND m.activo = 1
-          AND m.minimo_existencia > 0
-          AND COALESCE(i.disponible_base, 0) >= m.minimo_existencia
-          AND COALESCE(i.disponible_base, 0) <= (m.minimo_existencia * 1.2)
-    """, (empresa_id, empresa_id))
+            pb.id as producto_base_id,
+            pb.nombre as materia_prima,
+            pb.minimo_existencia,
+            pb.maximo_existencia,
+            pb.subcuenta_id
+        FROM producto_base pb
+        WHERE pb.empresa_id = %s
+          AND pb.activo = 1
+          AND pb.minimo_existencia > 0
+    """, (empresa_id,))
     
     for row in cursor.fetchall():
-        # Evitar duplicados
-        if not any(n['mercancia_id'] == row['mercancia_id'] for n in necesidades):
-            necesidades.append({
-                'mercancia_id': row['mercancia_id'],
-                'producto_base_id': row['producto_base_id'],
-                'descripcion': row['nombre'],
-                'cantidad_sugerida': max(row['cantidad_sugerida'], 0),
-                'stock_actual': row['stock_actual'],
-                'stock_minimo': row['minimo_existencia'],
-                'stock_maximo': row['maximo_existencia'],
-                'criterio': 'punto_reorden',
-                'prioridad': 2  # Prioridad media
-            })
+        producto_base_id = row['producto_base_id']
+        
+        # Evitar duplicados (si ya está en necesidades por criterio 1)
+        if any(n['producto_base_id'] == producto_base_id for n in necesidades):
+            continue
+        
+        stock_total = calcular_stock_total_materia_prima(empresa_id, producto_base_id)
+        minimo = Decimal(str(row['minimo_existencia']))
+        maximo = Decimal(str(row['maximo_existencia']))
+        umbral_reorden = minimo * Decimal('1.2')
+        
+        # ¿Está sobre mínimo pero bajo umbral de reorden?
+        if stock_total >= minimo and stock_total <= umbral_reorden:
+            presentacion = obtener_presentacion_preferida(empresa_id, producto_base_id)
+            
+            if presentacion:
+                cantidad_sugerida = max(maximo - stock_total, Decimal('0'))
+                
+                necesidades.append({
+                    'producto_base_id': producto_base_id,
+                    'mercancia_id': presentacion['id'],
+                    'descripcion': f"{presentacion['nombre']} (MP: {row['materia_prima']})",
+                    'materia_prima': row['materia_prima'],
+                    'cantidad_sugerida': cantidad_sugerida,
+                    'stock_actual': stock_total,
+                    'stock_minimo': minimo,
+                    'stock_maximo': maximo,
+                    'criterio': 'mp_punto_reorden',
+                    'prioridad': 2  # Prioridad media
+                })
     
     cursor.close()
     db.close()
@@ -138,7 +205,7 @@ def calcular_necesidades_compra(empresa_id):
 
 def crear_orden_compra_automatica(empresa_id):
     """
-    Genera la orden de compra automática del día
+    Genera la orden de compra automática del día basada en MATERIA PRIMA
     Retorna: orden_id si se creó, None si no había necesidades
     """
     db = conexion_db()
@@ -149,7 +216,7 @@ def crear_orden_compra_automatica(empresa_id):
         necesidades = calcular_necesidades_compra(empresa_id)
         
         if not necesidades:
-            print(f"No hay necesidades de compra para empresa {empresa_id}")
+            print(f"✅ No hay necesidades de compra para empresa {empresa_id}")
             return None
         
         # Generar folio
@@ -179,15 +246,15 @@ def crear_orden_compra_automatica(empresa_id):
             importe = cantidad * precio_estimado
             subtotal += importe
             
-            # Verificar si ya existe solicitud pendiente
+            # Verificar si ya existe solicitud pendiente para esta MATERIA PRIMA
             cursor.execute("""
                 SELECT fecha_primera_solicitud
                 FROM ordenes_compra_automaticas_detalle
-                WHERE mercancia_id = %s
+                WHERE producto_base_id = %s
                   AND estado NOT IN ('completado', 'cancelado')
                 ORDER BY fecha_primera_solicitud ASC
                 LIMIT 1
-            """, (item['mercancia_id'],))
+            """, (item['producto_base_id'],))
             
             fecha_primera = cursor.fetchone()
             fecha_primera_solicitud = fecha_primera['fecha_primera_solicitud'] if fecha_primera else datetime.now()
@@ -230,12 +297,14 @@ def crear_orden_compra_automatica(empresa_id):
         
         db.commit()
         
-        print(f"✅ Orden {folio} creada con {len(necesidades)} items")
+        print(f"✅ Orden {folio} creada con {len(necesidades)} items (por MATERIA PRIMA)")
         return orden_id
         
     except Exception as e:
         db.rollback()
         print(f"❌ Error al crear orden automática: {e}")
+        import traceback
+        traceback.print_exc()
         return None
     finally:
         cursor.close()
@@ -243,7 +312,10 @@ def crear_orden_compra_automatica(empresa_id):
 
 # Para testing
 if __name__ == "__main__":
-    empresa_id = 1
+    empresa_id = 10  # Cambiar por tu empresa_id
+    print(f"Generando orden automática para empresa {empresa_id}...")
     orden_id = crear_orden_compra_automatica(empresa_id)
     if orden_id:
-        print(f"Orden creada con ID: {orden_id}")
+        print(f"✅ Orden creada con ID: {orden_id}")
+    else:
+        print("ℹ️ No se creó orden (no hay necesidades)")

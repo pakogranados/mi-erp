@@ -1,53 +1,125 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Detalle de Compra</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="container mt-4">
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h2 class="page-title">Detalle de Compra</h2>
 
-    <h3 class="mb-4">Detalle de la Compra</h3>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
 
     {% if compra %}
         <!-- Encabezado de la compra -->
-        <div class="mb-3 p-3 border rounded bg-light">
-            <p><strong>Proveedor:</strong> {{ compra.proveedor }}</p>
-            <p><strong>Fecha:</strong> {{ compra.fecha }}</p>
-            <p><strong>Número de Factura:</strong> {{ compra.numero_factura }}</p>
-            <p><strong>Total:</strong> ${{ "%.2f"|format(compra.total) }}</p>
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <p class="mb-2"><strong>Proveedor:</strong></p>
+                        <p class="text-muted">{{ compra.proveedor }}</p>
+                    </div>
+                    <div class="col-md-2">
+                        <p class="mb-2"><strong>Fecha:</strong></p>
+                        <p class="text-muted">
+                        fecha_fmt: "{{ compra.fecha_fmt }}" | 
+                        fecha: "{{ compra.fecha }}"
+                        </p>
+                    </div>
+                    <div class="col-md-2">
+                        <p class="mb-2"><strong>Factura:</strong></p>
+                        <p class="text-muted">{{ compra.numero_factura }}</p>
+                    </div>
+                    <div class="col-md-2">
+                        <p class="mb-2"><strong>Forma de Pago:</strong></p>
+                        <p class="text-muted">{{ compra.forma_pago|upper }}</p>
+                    </div>
+                    <div class="col-md-2">
+                        <p class="mb-2"><strong>Estado:</strong></p>
+                        <span class="badge bg-warning">{{ compra.estado|upper }}</span>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="row">
+                    <div class="col-md-3">
+                        <p class="mb-2"><strong>Subtotal:</strong></p>
+                        <p class="text-muted">${{ "%.2f"|format(compra.subtotal) }}</p>
+                    </div>
+                    <div class="col-md-2">
+                        <p class="mb-2"><strong>IVA:</strong></p>
+                        <p class="text-muted">${{ "%.2f"|format(compra.iva) }}</p>
+                    </div>
+                    <div class="col-md-2">
+                        <p class="mb-2"><strong>IEPS:</strong></p>
+                        <p class="text-muted">${{ "%.2f"|format(compra.ieps) }}</p>
+                    </div>
+                    <div class="col-md-3">
+                        <p class="mb-2"><strong>TOTAL:</strong></p>
+                        <h4 class="text-primary">${{ "%.2f"|format(compra.total) }}</h4>
+                    </div>
+                </div>
+                
+                {% if compra.observaciones %}
+                <hr>
+                <p class="mb-2"><strong>Notas:</strong></p>
+                <p class="text-muted">{{ compra.observaciones }}</p>
+                {% endif %}
+            </div>
         </div>
 
-        <!-- Tabla de detalle -->
-        <table class="table table-bordered table-hover">
-            <thead class="table-light">
-                <tr>
-                    <th>Producto</th>
-                    <th class="text-end">Unidades</th>
-                    <th class="text-end">Precio Unitario</th>
-                    <th class="text-end">Precio Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in detalles %}
-                <tr>
-                    <td>{{ item.producto }}</td>
-                    <td class="text-end">{{ "%.2f"|format(item.unidades) }}</td>
-                    <td class="text-end">${{ "%.2f"|format(item.precio_unitario) }}</td>
-                    <td class="text-end">${{ "%.2f"|format(item.precio_total) }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <!-- Tabla de detalle de productos -->
+        <h4 class="mb-3">Productos</h4>
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Producto</th>
+                        <th>Unidad</th>
+                        <th class="text-end">Cantidad</th>
+                        <th class="text-end">Contenido Neto Total</th>
+                        <th class="text-end">Precio Unitario</th>
+                        <th class="text-end">Precio Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in detalles %}
+                    <tr>
+                        <td>{{ item.producto }}</td>
+                        <td>{{ item.unidad_medida or '—' }}</td>
+                        <td class="text-end">{{ "%.2f"|format(item.unidades) }}</td>
+                        <td class="text-end">{{ "%.2f"|format(item.contenido_neto_total) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(item.precio_unitario) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(item.precio_total) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="5" class="text-end">SUBTOTAL:</th>
+                        <th class="text-end">${{ "%.2f"|format(compra.subtotal) }}</th>
+                    </tr>
+                    <tr>
+                        <th colspan="5" class="text-end">IVA (16%):</th>
+                        <th class="text-end">${{ "%.2f"|format(compra.iva) }}</th>
+                    </tr>
+                    <tr>
+                        <th colspan="5" class="text-end">TOTAL:</th>
+                        <th class="text-end text-primary">${{ "%.2f"|format(compra.total) }}</th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
     {% else %}
-        <!-- Si no existe la compra -->
         <div class="alert alert-warning">
             No se encontró información de la compra.
         </div>
     {% endif %}
 
-    <!-- Botón para volver -->
-    <a href="{{ url_for('listado_compras') }}" class="btn btn-secondary mt-3">Volver</a>
-
-</body>
-</html>
+    <a href="{{ url_for('listado_compras') }}" class="btn btn-secondary mt-3">
+        <i class="fas fa-arrow-left"></i> Volver al Listado
+    </a>
+</div>
+{% endblock %}

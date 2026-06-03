@@ -1,7 +1,7 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 {% block content %}
 <div class="container mt-4">
-  <h2 class="mb-4">Registrar Nueva Compra</h2>
+  <h2 class="page-title">Registrar Nueva Compra</h2>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -47,48 +47,126 @@
       </select>
     </div>
 
-    <!-- Datalist de mercancías (de mercancia.id/nombre) -->
+    <!-- Datalist de mercancías -->
     <datalist id="d_mercancia">
       {% for p in productos %}
         <option data-id="{{ p.id }}" value="{{ p.nombre }}"></option>
       {% endfor %}
     </datalist>
 
-    <!-- Tabla -->
-    <table id="tabla-productos" class="table table-sm align-middle">
-      <thead class="table-light">
-        <tr>
-          <th>Producto</th>
-          <th class="text-end">Unidades</th>
-          <th class="text-end">Precio unitario</th>
-          <th class="text-end">Importe</th>
-          <th style="width:1%"></th>
-        </tr>
-      </thead>
-      <tbody id="items-body"></tbody>
-      <tfoot>
-        <tr>
-          <td colspan="3" class="text-end"><strong>Gran Total:</strong></td>
-          <td class="text-end"><strong id="granTotal">$0.00</strong></td>
-          <td></td>
-        </tr>
-      </tfoot>
-    </table>
+    <!-- PRODUCTOS -->
+    <div class="card mb-4">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-box"></i> Productos / Mercancías</h5>
+      </div>
+      <div class="card-body">
+        <table id="tabla-productos" class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Producto</th>
+              <th class="text-end">Unidades</th>
+              <th class="text-end">Precio unitario</th>
+              <th class="text-end">Importe</th>
+              <th style="width:1%"></th>
+            </tr>
+          </thead>
+          <tbody id="items-body"></tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="text-end"><strong>Subtotal Productos:</strong></td>
+              <td class="text-end"><strong id="subtotalProductos">$0.00</strong></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+        <button type="button" id="btn-add-producto" class="btn btn-sm btn-secondary">
+          <i class="fas fa-plus"></i> Agregar Producto
+        </button>
+      </div>
+    </div>
+
+    <!-- GASTOS -->
+    <div class="card mb-4">
+      <div class="card-header bg-warning">
+        <h5 class="mb-0"><i class="fas fa-receipt"></i> Gastos Asociados (Opcional)</h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">Agrega gastos relacionados a esta compra (luz, agua, transporte, etc.)</p>
+        
+        <table id="tabla-gastos" class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Cuenta Contable</th>
+              <th>Descripción</th>
+              <th class="text-end">Monto</th>
+              <th style="width:1%"></th>
+            </tr>
+          </thead>
+          <tbody id="gastos-body"></tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2" class="text-end"><strong>Total Gastos:</strong></td>
+              <td class="text-end"><strong id="totalGastos">$0.00</strong></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+        <button type="button" id="btn-add-gasto" class="btn btn-sm btn-warning">
+          <i class="fas fa-plus"></i> Agregar Gasto
+        </button>
+      </div>
+    </div>
+
+    <!-- RESUMEN FINAL -->
+    <div class="card mb-4 border-primary">
+      <div class="card-body bg-light">
+        <div class="row">
+          <div class="col-md-6 offset-md-6">
+            <table class="table table-sm mb-0">
+              <tr>
+                <td class="text-end">Subtotal Productos:</td>
+                <td class="text-end fw-bold" id="resumen-productos">$0.00</td>
+              </tr>
+              <tr>
+                <td class="text-end">Total Gastos:</td>
+                <td class="text-end fw-bold" id="resumen-gastos">$0.00</td>
+              </tr>
+              <tr class="table-primary">
+                <td class="text-end"><strong>GRAN TOTAL:</strong></td>
+                <td class="text-end"><strong id="granTotal">$0.00</strong></td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="mb-3 d-flex gap-2">
-      <button type="button" id="btn-add" class="btn btn-secondary">Agregar otro producto</button>
-      <button type="submit" id="btn-registrar" class="btn btn-primary">Registrar Compra</button>
+      <button type="submit" id="btn-registrar" class="btn btn-primary btn-lg">
+        <i class="fas fa-save"></i> Registrar Compra
+      </button>
       <a href="/listado_compras" class="btn btn-outline-secondary">Listado de Compras</a>
       <a href="/mercancia" class="btn btn-outline-secondary">Registra nueva Mercancia</a>
     </div>
   </form>
 </div>
 
+<!-- Datalist de cuentas de gastos -->
+<datalist id="d_cuentas_gastos">
+  {% for cuenta in cuentas_gastos %}
+    <option data-id="{{ cuenta.id }}" value="{{ cuenta.codigo }} - {{ cuenta.nombre }}"></option>
+  {% endfor %}
+</datalist>
+
 <script>
-  const body = document.getElementById('items-body');
+  const bodyProductos = document.getElementById('items-body');
+  const bodyGastos = document.getElementById('gastos-body');
+  const subtotalProductosEl = document.getElementById('subtotalProductos');
+  const totalGastosEl = document.getElementById('totalGastos');
   const granTotalEl = document.getElementById('granTotal');
   const btnRegistrar = document.getElementById('btn-registrar');
-  const btnAdd = document.getElementById('btn-add');
+  const btnAddProducto = document.getElementById('btn-add-producto');
+  const btnAddGasto = document.getElementById('btn-add-gasto');
   const form = document.querySelector('form');
 
   function num(v){ return parseFloat(String(v).replace(',', '.')) || 0; }
@@ -119,32 +197,62 @@
     const factura = document.querySelector('input[name="numero_factura"]').value.trim();
     if (!proveedor || !fecha || !factura) valido = false;
 
-    body.querySelectorAll('.fila-producto').forEach(tr => {
+    // Contar productos válidos
+    let productosValidos = 0;
+    bodyProductos.querySelectorAll('.fila-producto').forEach(tr => {
       if (rowInvalid(tr)) {
         setRowState(tr, false);
-        valido = false;
+      } else {
+        const qty = tr.querySelector('.unidades').value.trim();
+        const pu = tr.querySelector('.precio_unitario').value.trim();
+        if (qty && pu && parseFloat(qty) > 0 && parseFloat(pu) > 0) {
+          productosValidos++;
+        }
       }
     });
 
+    // Al menos 1 producto válido
+    if (productosValidos === 0) valido = false;
+
     btnRegistrar.disabled = !valido;
-    btnAdd.disabled = !valido;
+    btnAddProducto.disabled = !valido;
   }
 
-  function calcRow(tr) {
+  function calcRowProducto(tr) {
     const q = num(tr.querySelector('.unidades').value);
     const p = num(tr.querySelector('.precio_unitario').value);
     const total = Math.round(q * p * 100) / 100;
     tr.querySelector('.precio_total').value = total.toFixed(2);
-    calcTotal();
+    calcTotales();
   }
 
-  function calcTotal() {
-    let total = 0;
-    body.querySelectorAll('.precio_total').forEach(input => { total += parseFloat(input.value) || 0; });
-    granTotalEl.textContent = `$${total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  function calcRowGasto(tr) {
+    calcTotales();
   }
 
-  function bindRow(tr) {
+  function calcTotales() {
+    // Subtotal productos
+    let subtotalProd = 0;
+    bodyProductos.querySelectorAll('.precio_total').forEach(input => {
+      subtotalProd += parseFloat(input.value) || 0;
+    });
+    subtotalProductosEl.textContent = `$${subtotalProd.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    document.getElementById('resumen-productos').textContent = subtotalProductosEl.textContent;
+
+    // Total gastos
+    let totalGast = 0;
+    bodyGastos.querySelectorAll('.monto-gasto').forEach(input => {
+      totalGast += parseFloat(input.value) || 0;
+    });
+    totalGastosEl.textContent = `$${totalGast.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    document.getElementById('resumen-gastos').textContent = totalGastosEl.textContent;
+
+    // Gran total
+    const granTotal = subtotalProd + totalGast;
+    granTotalEl.textContent = `$${granTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  function bindRowProducto(tr) {
     const qty = tr.querySelector('.unidades');
     const pu  = tr.querySelector('.precio_unitario');
     const del = tr.querySelector('.btn-del');
@@ -152,23 +260,21 @@
     const msg = tr.querySelector('.msg-validacion');
     const hiddenId = tr.querySelector('.mercancia_id');
 
-    // inicio: bloqueado
     setRowState(tr, false);
     msg.textContent = 'Selecciona un producto del catálogo.';
 
     ['input','change','keyup'].forEach(ev => {
-      qty.addEventListener(ev, () => { calcRow(tr); validarFormulario(); });
-      pu.addEventListener(ev,  () => { calcRow(tr); validarFormulario(); });
+      qty.addEventListener(ev, () => { calcRowProducto(tr); validarFormulario(); });
+      pu.addEventListener(ev,  () => { calcRowProducto(tr); validarFormulario(); });
     });
 
     del.addEventListener('click', () => {
       tr.remove();
-      calcTotal();
-      if (!body.children.length) addRow();
+      calcTotales();
+      if (!bodyProductos.children.length) addRowProducto();
       validarFormulario();
     });
 
-    // al teclear, invalida hasta escoger opción válida
     prodInput.addEventListener('input', () => {
       hiddenId.value = '';
       msg.textContent = 'Selecciona un producto del catálogo.';
@@ -176,37 +282,58 @@
       validarFormulario();
     });
 
-    // al cambiar, mapea nombre->id desde datalist
     prodInput.addEventListener('change', () => {
       const val = prodInput.value;
       const opt = Array.from(document.querySelectorAll('#d_mercancia option')).find(o => o.value === val);
       hiddenId.value = opt ? opt.dataset.id : '';
       if (hiddenId.value) {
         msg.textContent = '';
+        msg.innerHTML = '';
         setRowState(tr, true);
       } else {
-        msg.textContent = 'Producto inexistente. Usa una opción del catálogo.';
+        msg.innerHTML = 'Producto inexistente. <a href="/mercancia" target="_blank" class="text-danger fw-bold">Regístralo en Mercancía →</a>';
         setRowState(tr, false);
       }
       validarFormulario();
     });
 
-    // Tab en PU agrega fila solo si todo válido
     pu.addEventListener('keydown', (e) => {
       if (e.key === 'Tab' && !e.shiftKey) {
-        const isLast = tr === body.lastElementChild;
+        const isLast = tr === bodyProductos.lastElementChild;
         if (isLast) {
           validarFormulario();
           if (!btnRegistrar.disabled) {
             e.preventDefault();
-            addRow();
+            addRowProducto();
           }
         }
       }
     });
   }
 
-  function addRow() {
+  function bindRowGasto(tr) {
+    const cuentaInput = tr.querySelector('.cuenta-gasto-input');
+    const cuentaId = tr.querySelector('.cuenta_contable_id');
+    const monto = tr.querySelector('.monto-gasto');
+    const del = tr.querySelector('.btn-del-gasto');
+
+    ['input','change','keyup'].forEach(ev => {
+      monto.addEventListener(ev, () => { calcRowGasto(tr); });
+    });
+
+    del.addEventListener('click', () => {
+      tr.remove();
+      calcTotales();
+    });
+
+    cuentaInput.addEventListener('change', () => {
+      const val = cuentaInput.value;
+      const opt = Array.from(document.querySelectorAll('#d_cuentas_gastos option')).find(o => o.value === val);
+      cuentaId.value = opt ? opt.dataset.id : '';
+    });
+  }
+
+  function addRowProducto() {
     const tr = document.createElement('tr');
     tr.className = 'fila-producto';
     tr.innerHTML = `
@@ -228,34 +355,59 @@
         <button type="button" class="btn btn-sm btn-danger btn-del">×</button>
       </td>
     `;
-    body.appendChild(tr);
-    bindRow(tr);
+    bodyProductos.appendChild(tr);
+    bindRowProducto(tr);
     tr.querySelector('.prod').focus();
     return tr;
   }
 
-  // bloquea submit si hay filas inválidas
+  function addRowGasto() {
+    const tr = document.createElement('tr');
+    tr.className = 'fila-gasto';
+    tr.innerHTML = `
+      <td>
+        <input type="text" name="gasto_cuenta[]" list="d_cuentas_gastos" class="form-control cuenta-gasto-input" placeholder="Selecciona cuenta...">
+        <input type="hidden" name="gasto_cuenta_id[]" class="cuenta_contable_id">
+      </td>
+      <td>
+        <input type="text" name="gasto_descripcion[]" class="form-control" placeholder="Descripción opcional">
+      </td>
+      <td>
+        <input type="number" name="gasto_monto[]" class="form-control monto-gasto text-end" step="0.01" min="0" value="0">
+      </td>
+      <td>
+        <button type="button" class="btn btn-sm btn-danger btn-del-gasto">×</button>
+      </td>
+    `;
+    bodyGastos.appendChild(tr);
+    bindRowGasto(tr);
+    tr.querySelector('.cuenta-gasto-input').focus();
+    return tr;
+  }
+
   form.addEventListener('submit', (e) => {
     validarFormulario();
     if (btnRegistrar.disabled) {
       e.preventDefault();
-      const firstBad = Array.from(body.querySelectorAll('.fila-producto')).find(rowInvalid);
+      const firstBad = Array.from(bodyProductos.querySelectorAll('.fila-producto')).find(rowInvalid);
       if (firstBad) firstBad.querySelector('.prod').focus();
     }
   });
 
-  // init
   document.addEventListener('DOMContentLoaded', () => {
-    addRow();
+    addRowProducto();
     validarFormulario();
   });
 
-  btnAdd.addEventListener('click', () => {
+  btnAddProducto.addEventListener('click', () => {
     validarFormulario();
     if (!btnRegistrar.disabled) {
-      const r = addRow();
-      r.querySelector('.prod').focus();
+      addRowProducto();
     }
+  });
+
+  btnAddGasto.addEventListener('click', () => {
+    addRowGasto();
   });
 </script>
 {% endblock %}

@@ -1,0 +1,76 @@
+{% extends "sidebar_multitenant.html" %}
+{% block title %}Editar Perfil - {{ empresa.nombre }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-4" style="max-width:700px;">
+    <div class="d-flex align-items-center mb-4">
+        <a href="{{ url_for('perfil_grupo') }}" class="btn btn-outline-secondary me-3">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <div>
+            <h2 class="h3 fw-bold mb-0">Editar Perfil</h2>
+            <small class="text-muted">{{ empresa.nombre }}</small>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}{% for c, m in messages %}
+    <div class="alert alert-{{ c }}">{{ m }}</div>
+    {% endfor %}{% endif %}
+    {% endwith %}
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            <form method="POST">
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Nombre de la Empresa</label>
+                    <input type="text" name="nombre" class="form-control" value="{{ empresa.nombre }}" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Tipo de Empresa</label>
+                    <select name="tipo_empresa" class="form-select">
+                        <option value="holding" {% if empresa.tipo_empresa == 'holding' %}selected{% endif %}>Holding</option>
+                        <option value="produccion" {% if empresa.tipo_empresa == 'produccion' %}selected{% endif %}>Producción</option>
+                        <option value="punto_venta" {% if empresa.tipo_empresa == 'punto_venta' %}selected{% endif %}>Punto de Venta</option>
+                        <option value="administracion" {% if empresa.tipo_empresa == 'administracion' %}selected{% endif %}>Administración</option>
+                        <option value="logistica" {% if empresa.tipo_empresa == 'logistica' %}selected{% endif %}>Logística</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Descripción del Negocio</label>
+                    <textarea name="uso_descripcion" class="form-control" rows="3" placeholder="Describe el rol de esta empresa en el grupo...">{{ empresa.uso_descripcion or '' }}</textarea>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Responsable</label>
+                        <input type="text" name="responsable_nombre" class="form-control" value="{{ empresa.responsable_nombre or '' }}" placeholder="Nombre del responsable">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Puesto</label>
+                        <input type="text" name="responsable_puesto" class="form-control" value="{{ empresa.responsable_puesto or '' }}" placeholder="Gerente General...">
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Teléfono</label>
+                        <input type="text" name="telefono" class="form-control" value="{{ empresa.telefono or '' }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Email</label>
+                        <input type="email" name="email" class="form-control" value="{{ empresa.email or '' }}">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-medium">Dirección</label>
+                    <input type="text" name="direccion" class="form-control" value="{{ empresa.direccion or '' }}">
+                </div>
+                <div class="d-flex gap-2 justify-content-end">
+                    <a href="{{ url_for('perfil_grupo') }}" class="btn btn-light">Cancelar</a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i> Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

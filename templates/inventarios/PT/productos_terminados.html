@@ -1,7 +1,7 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 {% block content %}
 <div class="container-fluid">
-  <h2 class="mb-4">Catálogo de Productos Terminados</h2>
+  <h2 class="page-title">Catálogo de Productos Terminados</h2>
 
   <!-- Formulario para agregar nuevo PT -->
   <form method="POST" class="row g-3 mb-4">
@@ -26,6 +26,11 @@
       <tr>
         <td class="text-center">{{ p.id }}</td>
         <td>{{ p.nombre }}</td>
+        <td class="text-center"> <!-- ← AGREGAR -->
+          <a href="{{ url_for('pt_editar', id=p.id) }}" class="btn btn-sm btn-warning">
+            <i class="fas fa-edit"></i> Editar
+          </a>
+        </td>  
       </tr>
       {% endfor %}
     </tbody>

@@ -12,7 +12,7 @@ bp = Blueprint('auth', __name__)
 @bp.route('/')
 def index():
     if 'user_id' in session:
-        return redirect(url_for('dashboard.index'))
+        return redirect(url_for('dashboard'))
     return redirect(url_for('auth.login'))
 
 @bp.route('/login', methods=['GET', 'POST'])
@@ -52,7 +52,7 @@ def login():
             session['empresas_acceso'] = json.loads(user['empresas_acceso']) if user['empresas_acceso'] else [user['empresa_id']]
             
             flash(f'Bienvenido {user["nombre"]}', 'success')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard'))
         else:
             flash('Email o contraseña incorrectos', 'danger')
     

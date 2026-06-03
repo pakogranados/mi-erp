@@ -1,0 +1,139 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+  <h2 class="page-title">Proveedores</h2>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- Formulario de registro -->
+  <div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+      <h5 class="mb-0">Registrar Nuevo Proveedor</h5>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('proveedores') }}" class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label"><strong>Nombre del Proveedor</strong> <span class="text-danger">*</span></label>
+          <input type="text" name="nombre" class="form-control" placeholder="VANI" required>
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">RFC</label>
+          <input type="text" name="rfc" class="form-control" placeholder="VANI000000XXX" maxlength="13">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Tipo</label>
+          <select name="tipo" class="form-select" required>
+            <option value="nacional" selected>Nacional</option>
+            <option value="extranjero">Extranjero</option>
+          </select>
+        </div>
+
+        <div class="col-md-4">
+          <label class="form-label">Dirección</label>
+          <input type="text" name="direccion" class="form-control" placeholder="Calle y número">
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label">Ciudad</label>
+          <input type="text" name="ciudad" class="form-control" placeholder="Ciudad Juárez">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Teléfono</label>
+          <input type="text" name="telefono" class="form-control" placeholder="656-123-4567">
+        </div>
+
+        <div class="col-md-3 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="fas fa-plus"></i> Registrar Proveedor
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Lista de proveedores -->
+  <h3 class="mb-3">Proveedores Registrados</h3>
+
+  {% if proveedores and proveedores|length > 0 %}
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width:50px;">ID</th>
+            <th style="width:250px;">Nombre</th>
+            <th style="width:120px;">RFC</th>
+            <th style="width:200px;">Dirección</th>
+            <th style="width:120px;">Ciudad</th>
+            <th style="width:120px;">Teléfono</th>
+            <th style="width:200px;">Cuenta Contable</th>
+            <th style="width:80px;">Estado</th>
+            <th style="width:150px;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in proveedores %}
+          <tr>
+            <form method="POST" action="{{ url_for('actualizar_proveedor', id=p.id) }}">
+              <td class="text-center">{{ p.id }}</td>
+              <td>
+                <input type="text" name="nombre" class="form-control" value="{{ p.nombre }}" required>
+              </td>
+              <td>
+                <input type="text" name="rfc" class="form-control" value="{{ p.rfc or '' }}" maxlength="13">
+              </td>
+              <td>
+                <input type="text" name="direccion" class="form-control" value="{{ p.direccion or '' }}">
+              </td>
+              <td>
+                <input type="text" name="ciudad" class="form-control" value="{{ p.ciudad or '' }}">
+              </td>
+              <td>
+                <input type="text" name="telefono" class="form-control" value="{{ p.telefono or '' }}">
+              </td>
+              <td class="text-muted small">
+                {% if p.codigo_cuenta %}
+                  {{ p.codigo_cuenta }}<br>{{ p.nombre_cuenta }}
+                {% else %}
+                  <span class="text-warning">Sin cuenta</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if p.activo %}
+                  <span class="badge bg-success">Activo</span>
+                {% else %}
+                  <span class="badge bg-secondary">Inactivo</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <button type="submit" class="btn btn-sm btn-outline-primary">
+                  <i class="fas fa-save"></i> Guardar
+                </button>
+              </td>
+            </form>
+            <td class="text-center">
+              <form method="POST" action="{{ url_for('eliminar_proveedor', id=p.id) }}" 
+                    onsubmit="return confirm('⚠️ ¿Eliminar proveedor {{ p.nombre }}?\n\nEsta acción no se puede deshacer.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info">No hay proveedores registrados.</div>
+  {% endif %}
+</div>
+{% endblock %}

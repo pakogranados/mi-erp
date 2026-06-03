@@ -1,4 +1,4 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 
 {% block title %}Emitir Factura B2B - ERP{% endblock %}
 
@@ -71,8 +71,9 @@
                                     {% for p in productos %}
                                     <option value="{{ p.id }}" 
                                             data-nombre="{{ p.nombre }}" 
-                                            data-precio="{{ p.precio or 0 }}">
-                                        {{ p.nombre }}
+                                            data-precio="{{ p.precio or 0 }}"
+                                            data-stock="{{ p.stock or 0 }}">
+                                        {{ p.nombre }} (Stock: {{ "%.2f"|format(p.stock or 0) }})
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -81,7 +82,8 @@
                                 <input type="number" class="form-control" id="cantidadInput" placeholder="Cant" step="0.001" value="1">
                             </div>
                             <div class="col-md-2">
-                                <input type="number" class="form-control" id="precioInput" placeholder="Precio" step="0.01">
+                                <input type="number" class="form-control" id="precioInput" placeholder="Precio" step="0.01" readonly style="background-color:#e9ecef;">
+                                <small id="stockInfo" class="text-muted"></small>
                             </div>
                             <div class="col-md-2">
                                 <select class="form-select" id="ivaSelect">
@@ -226,6 +228,9 @@ document.getElementById('empresaCliente').addEventListener('change', function() 
 document.getElementById('productoSelect').addEventListener('change', function() {
     const option = this.options[this.selectedIndex];
     document.getElementById('precioInput').value = option.dataset.precio || '';
+    const stock = parseFloat(option.dataset.stock || 0);
+    const stockInfo = document.getElementById('stockInfo');
+    if (stockInfo) stockInfo.textContent = `Stock disponible: ${stock.toFixed(2)}`;
 });
 
 function agregarProducto() {

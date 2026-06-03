@@ -1,4 +1,4 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 {% block content %}
 <div class="container-fluid mt-4">
   <h2 class="mb-3">Catálogo de MP (Producto base)</h2>
@@ -27,16 +27,24 @@
       <tr>
         <th>#</th>
         <th>Nombre (Producto base)</th>
+        <th class="text-center">Requiere Producción</th>
         <th class="text-center">Activo</th>
         <th class="text-center">Mercancías ligadas</th>
         <th class="text-center">Acciones</th>
       </tr>
     </thead>
     <tbody>
-      {% for it in items|default([]) %}
+      {% for it in productos|default([]) %}
       <tr>
         <td>{{ it.id }}</td>
         <td>{{ it.nombre }}</td>
+        <td class="text-center">
+          {% if it.requiere_produccion %}
+            <span class="badge bg-warning text-dark">Producción</span>
+          {% else %}
+            <span class="badge bg-success">Directo a PT</span>
+          {% endif %}
+        </td>
         <td class="text-center">
           <form method="post" action="{{ url_for('catalogo_mp_toggle', id=it.id) }}">
             <button class="btn btn-sm {{ 'btn-success' if it.activo else 'btn-secondary' }}" type="submit">
@@ -50,7 +58,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="text-center text-muted">Sin elementos en el catálogo.</td></tr>
+      <tr><td colspan="6" class="text-center text-muted">Sin elementos en el catálogo.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -59,7 +67,6 @@
 <!-- Modal NUEVO -->
 <div class="modal fade" id="modal-nuevo" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
-    <!-- ESTE FORM POSTEA A /catalogo_mp/nuevo -->
     <form method="post" action="{{ url_for('catalogo_mp_nuevo') }}">
       <div class="modal-content">
         <div class="modal-header">
@@ -76,13 +83,14 @@
               <option value="{{ u.id }}">{{ u.nombre }}</option>
             {% endfor %}
           </select>
+          <label class="form-label mt-2">¿Requiere producción?</label>
+          <select class="form-select" name="requiere_produccion">
+            <option value="1">Sí — pasa por proceso de producción</option>
+            <option value="0">No — va directo a PT</option>
+          </select>
         </div>
-
-
-
         <div class="modal-footer">
           <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
-          <!-- este botón hace el POST -->
           <button class="btn btn-primary" type="submit">Guardar</button>
         </div>
       </div>

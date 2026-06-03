@@ -1,0 +1,93 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h2 class="page-title">Nueva Empresa</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('admin_nueva_empresa') }}">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Nombre Comercial <span class="text-danger">*</span></label>
+                        <input type="text" name="nombre" class="form-control" required 
+                               placeholder="Ej: Mi Empresa SA de CV">
+                        <small class="text-muted">Nombre que aparecerá en el sistema</small>
+                    </div>
+                   </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">RFC</label>
+                        <input type="text" name="rfc" class="form-control" 
+                               placeholder="XAXX010101000" maxlength="13">
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Teléfono</label>
+                        <input type="tel" name="telefono" class="form-control" 
+                               placeholder="(656) 123-4567">
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" name="email" class="form-control" 
+                               placeholder="contacto@empresa.com">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Dirección</label>
+                    <textarea name="direccion" class="form-control" rows="2" 
+                              placeholder="Calle, número, colonia, ciudad, estado"></textarea>
+                </div>
+
+                <hr class="my-4">
+                <h5 class="mb-3">Estructura Organizacional</h5>
+
+                <div class="mb-3">
+                    <label class="form-label">Descripción de Uso / Objetivo</label>
+                    <textarea name="uso_descripcion" class="form-control" rows="3" 
+                            placeholder="Ej: Empresa destinada a surtir insumos y materias primas para la venta directa al cliente final"></textarea>
+                    <small class="text-muted">Esta descripción aparecerá en la estructura organizacional</small>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Responsable</label>
+                        <input type="text" name="responsable_nombre" class="form-control" 
+                            placeholder="Nombre completo del responsable">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Puesto del Responsable</label>
+                        <input type="text" name="responsable_puesto" class="form-control" 
+                            placeholder="Ej: Supervisor, Gerente">
+                    </div>
+                </div>
+            
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Nota:</strong> La nueva empresa se creará en tu grupo multi-tenant. 
+                    Podrás cambiar entre empresas desde el menú superior.
+                </div>
+
+                <div class="d-flex justify-content-between mt-4">
+                    <a href="{{ url_for('admin_listar_empresas') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Cancelar
+                    </a>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-save"></i> Crear Empresa
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

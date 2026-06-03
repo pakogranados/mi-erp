@@ -7,8 +7,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from . import bp
 from db import conexion_db  # <- NO desde app
 from flask import g
-from auth_utils import require_login
-
+from utils.decorators import require_login
 
 @bp.get("/procesos")
 @require_login
@@ -21,7 +20,7 @@ def procesos_list():
     eid = g.empresa_id
 
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     cur.execute("""
         SELECT
             p.id,
@@ -31,7 +30,7 @@ def procesos_list():
             m.nombre AS pt_nombre
         FROM procesos p
         LEFT JOIN mercancia m
-               ON m.id = p.pt_id
+               ON m.id = p.producto_terminado_id
               AND m.empresa_id = %s
         WHERE p.empresa_id = %s
         ORDER BY p.nombre
@@ -55,8 +54,8 @@ def procesos_nuevo():
     if request.method == "POST":
         nombre   = (request.form.get("nombre") or "").strip()
         desc     = (request.form.get("descripcion") or "").strip()
-        pt_id_s  = request.form.get("pt_id")
-        pt_id    = int(pt_id_s) if pt_id_s and pt_id_s.isdigit() else None
+        pt_id_s  = request.form.get("producto_terminado_id")
+        producto_terminado_id    = int(pt_id_s) if pt_id_s and pt_id_s.isdigit() else None
 
         # Nuevos campos
         areas_involucradas = (request.form.get("areas_involucradas") or "").strip()
@@ -69,14 +68,14 @@ def procesos_nuevo():
             costo_estimado = 0.00
 
         conn = conexion_db()
-        cur  = conn.cursor(dictionary=True)
+        cur  = conn.cursor(dictionary=True, buffered=True)
         try:
             # Validar PT pertenece a la empresa
-            if pt_id is not None:
+            if producto_terminado_id is not None:
                 cur.execute("""
                     SELECT id FROM mercancia
                     WHERE id=%s AND empresa_id=%s AND tipo='PT'
-                    """, (pt_id, eid))
+                    """, (producto_terminado_id, eid))
                 if not cur.fetchone():
                     flash("El PT seleccionado no pertenece a esta empresa.", "warning")
                     return redirect(url_for("wip.procesos_nuevo"))
@@ -95,14 +94,14 @@ def procesos_nuevo():
             # Insert con empresa_id
             cur.execute("""
                 INSERT INTO procesos
-                    (empresa_id, pt_id, nombre, descripcion,
+                    (empresa_id, producto_terminado_id, nombre, descripcion,
                      areas_involucradas, responsables, materiales,
                      costo_estimado, activo)
                 VALUES
                     (%s, %s, %s, %s,
                      %s, %s, %s,
                      %s, 1)
-            """, (eid, pt_id, nombre, desc,
+            """, (eid, producto_terminado_id, nombre, desc,
                   areas_involucradas, responsables, materiales,
                   costo_estimado))
             conn.commit()
@@ -121,7 +120,7 @@ def procesos_nuevo():
 
     # GET: cargar PTs de la empresa
     conn = conexion_db()
-    cur  = conn.cursor(dictionary=True)
+    cur  = conn.cursor(dictionary=True, buffered=True)
     cur.execute("""
         SELECT id, nombre
         FROM mercancia
@@ -141,14 +140,14 @@ def procesos_editar(id):
         return redirect('/login')
 
     eid = g.empresa_id
-    conn = conexion_db(); cur = conn.cursor(dictionary=True)
+    conn = conexion_db(); cur = conn.cursor(dictionary=True, buffered=True)
     try:
         if request.method == "POST":
             nombre   = (request.form.get("nombre") or "").strip()
             desc     = (request.form.get("descripcion") or "").strip()
             activo   = 1 if request.form.get("activo") == "1" else 0
-            pt_id_s  = request.form.get("pt_id")
-            pt_id    = int(pt_id_s) if pt_id_s and pt_id_s.isdigit() else None
+            pt_id_s  = request.form.get("producto_terminado_id")
+            producto_terminado_id    = int(pt_id_s) if pt_id_s and pt_id_s.isdigit() else None
 
             # Campos nuevos
             areas_involucradas = (request.form.get("areas_involucradas") or "").strip()
@@ -167,11 +166,11 @@ def procesos_editar(id):
                 return redirect(url_for("wip.procesos_list"))
 
             # Validar PT del mismo tenant (si viene)
-            if pt_id is not None:
+            if producto_terminado_id is not None:
                 cur.execute("""
                     SELECT id FROM mercancia
                     WHERE id=%s AND empresa_id=%s AND tipo='PT'
-                """, (pt_id, eid))
+                """, (producto_terminado_id, eid))
                 if not cur.fetchone():
                     flash("El PT seleccionado no pertenece a esta empresa.", "warning")
                     return redirect(url_for("wip.procesos_editar", id=id))
@@ -179,7 +178,7 @@ def procesos_editar(id):
             # Actualizar
             cur.execute("""
                 UPDATE procesos
-                   SET pt_id=%s,
+                   SET producto_terminado_id=%s,
                        nombre=%s,
                        descripcion=%s,
                        areas_involucradas=%s,
@@ -189,7 +188,7 @@ def procesos_editar(id):
                        activo=%s
                  WHERE id=%s
                    AND empresa_id=%s
-            """, (pt_id, nombre, desc, areas_involucradas, responsables,
+            """, (producto_terminado_id, nombre, desc, areas_involucradas, responsables,
                   materiales, costo_estimado, activo, id, eid))
             conn.commit()
             flash("✅ Proceso actualizado", "success")
@@ -232,7 +231,7 @@ def analizar_descripcion(proceso_id):
         return jsonify({'error': 'Descripción muy corta'}), 400
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     # Obtener lista de mercancías MP
     cur.execute("SELECT id, nombre FROM mercancia WHERE tipo='MP' ORDER BY nombre")
@@ -262,7 +261,7 @@ def analizar_descripcion(proceso_id):
 def obtener_responsable_area(area_id):
     """Obtiene el usuario responsable de un área"""
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     cur.execute("""
         SELECT u.id, u.nombre, u.puesto, u.correo
@@ -293,6 +292,7 @@ def obtener_responsable_area(area_id):
         })
 
 @bp.route("/procesos/<int:proceso_id>/pasos", methods=["GET","POST"])
+@require_login
 def pasos(proceso_id):
     """Gestionar pasos de un proceso"""
     if 'rol' not in session or session['rol'] != 'admin':
@@ -300,7 +300,7 @@ def pasos(proceso_id):
         return redirect('/login')
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     # POST: Agregar nuevo paso CON materiales detectados por IA
     if request.method == "POST":
@@ -314,11 +314,14 @@ def pasos(proceso_id):
             responsable = (request.form.get("responsable") or "").strip()
             requiere = 1 if request.form.get("requiere_validez") == "1" else 0
             minutos_s = request.form.get("minutos_estimados")
-            minutos = int(minutos_s) if minutos_s and minutos_s.isdigit() else None
+            try:
+                minutos = int(float(minutos_s)) if minutos_s and minutos_s.strip() else None
+            except (ValueError, TypeError):
+                minutos = None
             
             # Obtener siguiente orden
             cur.execute(
-                "SELECT COALESCE(MAX(orden), 0) + 1 AS siguiente FROM proceso_pasos WHERE proceso_id=%s",
+                "SELECT COALESCE(MAX(numero_paso), 0) + 1 AS siguiente FROM proceso_pasos WHERE proceso_id=%s",
                 (proceso_id,)
             )
             siguiente = cur.fetchone()["siguiente"]
@@ -326,7 +329,7 @@ def pasos(proceso_id):
             # Insertar paso (bloqueado por defecto al guardar con materiales)
             cur.execute("""
                 INSERT INTO proceso_pasos 
-                (proceso_id, orden, nombre, descripcion, area_id, responsable, requiere_validez, 
+                (proceso_id, numero_paso, nombre, descripcion, area_id, responsable, requiere_validez, 
                  minutos_estimados, costo_estimado, estado, bloqueado, fecha_guardado)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 'guardado', 1, NOW())
             """, (proceso_id, siguiente, nombre, descripcion, area_id, responsable, requiere, minutos))
@@ -353,11 +356,11 @@ def pasos(proceso_id):
                 materiales = json.loads(materiales_json)
                 
                 for mat in materiales:
-                    if mat.get('mercancia_id') and mat.get('cantidad', 0) > 0:
+                    if mat.get('producto_base_id') and mat.get('cantidad', 0) > 0:
                         cur.execute("""
-                            INSERT INTO paso_insumos (paso_id, mp_id, cantidad_por_lote, unidad_id)
+                            INSERT INTO paso_insumos (paso_id, mercancia_id, cantidad, unidad_id)
                             VALUES (%s, %s, %s, NULL)
-                        """, (paso_id, mat['mercancia_id'], mat['cantidad']))
+                        """, (paso_id, mat['producto_base_id'], mat['cantidad']))
                 
             except json.JSONDecodeError:
                 pass
@@ -373,6 +376,14 @@ def pasos(proceso_id):
             flash("🔓 Paso desbloqueado para edición", "info")
             return redirect(url_for("wip.pasos", proceso_id=proceso_id))
     
+        elif accion == "eliminar":
+            paso_id = int(request.form.get("paso_id"))
+            cur.execute("DELETE FROM paso_insumos WHERE paso_id = %s", (paso_id,))
+            cur.execute("DELETE FROM proceso_pasos WHERE id = %s AND proceso_id = %s", (paso_id, proceso_id))
+            conn.commit()
+            flash("🗑️ Paso eliminado correctamente", "info")
+            return redirect(url_for("wip.pasos", proceso_id=proceso_id))
+
     # GET: Mostrar pasos
     cur.execute("SELECT id, nombre, descripcion FROM procesos WHERE id=%s", (proceso_id,))
     proceso = cur.fetchone()
@@ -389,7 +400,7 @@ def pasos(proceso_id):
         FROM proceso_pasos pp
         LEFT JOIN areas_produccion a ON a.id = pp.area_id
         WHERE pp.proceso_id = %s
-        ORDER BY pp.orden, pp.id
+        ORDER BY pp.numero_paso, pp.id
     """, (proceso_id,))
     pasos = cur.fetchall()
     
@@ -398,45 +409,44 @@ def pasos(proceso_id):
         SELECT 
             pi.id, 
             pi.paso_id, 
-            pi.cantidad_por_lote,
+            pi.cantidad,
             m.nombre as mp_nombre, 
             m.id as mp_id,
             m.cont_neto,
             u.nombre as unidad,
             COALESCE(
                 (
-                    -- Calcular costo promedio ponderado del inventario actual
                     SELECT 
                         CASE 
                             WHEN SUM(
                                 CASE 
-                                    WHEN UPPER(im.tipo_movimiento) IN ('ENTRADA', 'COMPRA') 
-                                    THEN im.unidades 
-                                    ELSE -im.unidades 
+                                    WHEN im.tipo_movimiento = 'entrada'
+                                    THEN im.cantidad
+                                    ELSE -im.cantidad
                                 END
                             ) > 0
                             THEN SUM(
                                 CASE 
-                                    WHEN UPPER(im.tipo_movimiento) IN ('ENTRADA', 'COMPRA') 
-                                    THEN im.unidades * im.precio_unitario 
-                                    ELSE -im.unidades * im.precio_unitario 
+                                    WHEN im.tipo_movimiento = 'entrada'
+                                    THEN im.cantidad * im.costo_unitario
+                                    ELSE -im.cantidad * im.costo_unitario
                                 END
                             ) / SUM(
                                 CASE 
-                                    WHEN UPPER(im.tipo_movimiento) IN ('ENTRADA', 'COMPRA') 
-                                    THEN im.unidades 
-                                    ELSE -im.unidades 
+                                    WHEN im.tipo_movimiento = 'entrada'
+                                    THEN im.cantidad
+                                    ELSE -im.cantidad
                                 END
                             ) / m.cont_neto
                             ELSE 0 
                         END as costo_promedio_por_unidad_base
-                    FROM inventario_movimientos im
-                    WHERE im.mercancia_id = m.id
+                    FROM inventario_movimientos_mp im
+                    WHERE im.mp_id = m.id
                 ), 
                 0
             ) as precio_unitario
         FROM paso_insumos pi
-        JOIN mercancia m ON m.id = pi.mp_id
+        JOIN mercancia m ON m.id = pi.mercancia_id
         LEFT JOIN unidades_medida u ON u.id = m.unidad_id
         WHERE pi.paso_id IN (SELECT id FROM proceso_pasos WHERE proceso_id = %s)
         ORDER BY pi.paso_id, m.nombre
@@ -453,7 +463,7 @@ def pasos(proceso_id):
             costo_pasos[ins['paso_id']] = 0.00
         
         # Calcular costo del insumo
-        costo_insumo = float(ins['cantidad_por_lote']) * float(ins['precio_unitario'])
+        costo_insumo = float(ins['cantidad'] or 0) * float(ins['precio_unitario'] or 0)
         ins['costo_total'] = costo_insumo
         costo_pasos[ins['paso_id']] += costo_insumo
         
@@ -475,7 +485,7 @@ def pasos(proceso_id):
             u.nombre as unidad_base,
             COALESCE(i.entradas - i.salidas, 0) as disponible
         FROM mercancia m
-        LEFT JOIN inventario i ON i.mercancia_id = m.id
+        LEFT JOIN inventario_mp i ON i.mercancia_id = m.id
         LEFT JOIN unidades_medida u ON u.id = m.unidad_id
         WHERE m.tipo = 'MP' AND m.activo = 1
         ORDER BY m.nombre
@@ -493,7 +503,7 @@ def pasos(proceso_id):
                     'cantidad_total': 0,
                     'unidad': mat['unidad'] or 'unidades'
                 }
-            resumen_materiales[mp_id]['cantidad_total'] += float(mat['cantidad_por_lote'])
+            resumen_materiales[mp_id]['cantidad_total'] += float(mat['cantidad'])
     
     # Convertir a lista ordenada
     resumen_materiales = sorted(resumen_materiales.values(), key=lambda x: x['nombre'])
@@ -511,15 +521,44 @@ def pasos(proceso_id):
         WHERE p.id = %s
     """, (proceso_id,))
     info_produccion = cur.fetchone()
-    
+
     if info_produccion:
         proceso['cantidad_producida'] = info_produccion['cantidad_producida']
         proceso['producto_terminado_nombre'] = info_produccion['producto_terminado_nombre']
         proceso['unidad_produccion'] = info_produccion['unidad_produccion']
-    
+
+    # Materias primas para el combo (mismo enfoque que /inventarios/materias_primas)
+    cur.execute("""
+        SELECT
+            pb.id AS producto_base_id,
+            pb.nombre AS producto_base,
+            SUM(COALESCE(i.inventario_inicial, 0) + COALESCE(i.entradas, 0) - COALESCE(i.salidas, 0)) AS disponible
+        FROM producto_base pb
+        JOIN mercancia m ON m.producto_base_id = pb.id
+                    AND m.empresa_id = %s
+                    AND m.tipo = 'MP'
+        LEFT JOIN inventario_mp i ON i.mercancia_id = m.id
+        WHERE pb.activo = 1
+        GROUP BY pb.id, pb.nombre
+        ORDER BY pb.nombre
+    """, (g.empresa_id,))
+    materias_primas = cur.fetchall()
+
+    cur.execute("""
+        SELECT u.id, u.nombre, e.nombre as empresa_nombre
+        FROM usuarios u
+        LEFT JOIN empresas e ON e.id = u.empresa_id
+        WHERE u.activo = 1
+        ORDER BY u.nombre
+    """)
+    usuarios_disponibles = cur.fetchall()
+
+    cur.execute("SELECT id, nombre FROM unidades_medida ORDER BY nombre")
+    unidades_medida = cur.fetchall()
+
     cur.close()
     conn.close()
-    
+
     return render_template(
         "inventarios/WIP/pasos_form.html",
         proceso=proceso,
@@ -530,14 +569,16 @@ def pasos(proceso_id):
         areas=areas,
         mps=mps,
         resumen_materiales=resumen_materiales,
-        total_materiales_unicos=total_materiales_unicos
+        materias_primas=materias_primas,
+        usuarios_disponibles=usuarios_disponibles,
+        unidades_medida=unidades_medida
     )
 
 @bp.route("/areas/<int:area_id>/responsables")
 def area_responsables(area_id):
     """Obtener responsables de un área"""
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     cur.execute("""
         SELECT 
@@ -568,7 +609,7 @@ def paso_editar(proceso_id, paso_id):
         return redirect('/login')
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     # Verificar que el paso existe y está desbloqueado
     cur.execute("""
@@ -600,7 +641,10 @@ def paso_editar(proceso_id, paso_id):
         responsable = (request.form.get("responsable") or "").strip()
         requiere = 1 if request.form.get("requiere_validez") == "1" else 0
         minutos_s = request.form.get("minutos_estimados")
-        minutos = int(minutos_s) if minutos_s and minutos_s.isdigit() else None
+        try:
+            minutos = int(float(minutos_s)) if minutos_s and minutos_s.strip() else None
+        except (ValueError, TypeError):
+            minutos = None
         
         # Actualizar paso
         cur.execute("""
@@ -622,7 +666,7 @@ def paso_editar(proceso_id, paso_id):
             for mat in materiales:
                 if mat.get('mercancia_id') and mat.get('cantidad', 0) > 0:
                     cur.execute("""
-                        INSERT INTO paso_insumos (paso_id, mp_id, cantidad_por_lote, unidad_id)
+                        INSERT INTO paso_insumos (paso_id, mp_id, cantidad, unidad_id)
                         VALUES (%s, %s, %s, NULL)
                     """, (paso_id, mat['mercancia_id'], mat['cantidad']))
         except json.JSONDecodeError:
@@ -648,9 +692,9 @@ def paso_editar(proceso_id, paso_id):
     
     # Materiales actuales del paso
     cur.execute("""
-        SELECT pi.id, pi.cantidad_por_lote, m.id as mercancia_id, m.nombre as mp_nombre
+        SELECT pi.id, pi.cantidad, m.id as mercancia_id, m.nombre as mp_nombre
         FROM paso_insumos pi
-        JOIN mercancia m ON m.id = pi.mp_id
+        JOIN mercancia m ON m.id = pi.mercancia_id
         WHERE pi.paso_id = %s
         ORDER BY m.nombre
     """, (paso_id,))
@@ -676,7 +720,7 @@ def paso_insumo_agregar(proceso_id, paso_id):
         return redirect('/login')
     
     mp_id_s = request.form.get("mp_id")
-    cantidad_s = request.form.get("cantidad_por_lote")
+    cantidad_s = request.form.get("cantidad")
     unidad_id_s = request.form.get("unidad_id")
     
     if not (mp_id_s and cantidad_s):
@@ -688,9 +732,9 @@ def paso_insumo_agregar(proceso_id, paso_id):
     unidad_id = int(unidad_id_s) if unidad_id_s and unidad_id_s.isdigit() else None
     
     conn = conexion_db()
-    cur = conn.cursor()
+    cur = conn.cursor(buffered=True)
     cur.execute("""
-        INSERT INTO paso_insumos (paso_id, mp_id, cantidad_por_lote, unidad_id)
+        INSERT INTO paso_insumos (paso_id, mp_id, cantidad, unidad_id)
         VALUES (%s, %s, %s, %s)
     """, (paso_id, mp_id, cantidad, unidad_id))
     conn.commit()
@@ -707,7 +751,7 @@ def obtener_info_mercancia(mercancia_id):
         return jsonify({'error': 'No autorizado'}), 403
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         # Obtener mercancía CON INVENTARIO
@@ -801,7 +845,7 @@ def paso_insumo_eliminar(proceso_id, paso_id, insumo_id):
         return redirect('/login')
 
     eid = g.empresa_id
-    conn = conexion_db(); cur = conn.cursor(dictionary=True)
+    conn = conexion_db(); cur = conn.cursor(dictionary=True, buffered=True)
     try:
         # Validar que el paso pertenece al proceso y a la empresa
         cur.execute("""
@@ -831,6 +875,27 @@ def paso_insumo_eliminar(proceso_id, paso_id, insumo_id):
         try: conn.close()
         except: pass
 
+@bp.route("/procesos/<int:id>/eliminar", methods=["POST"])
+@require_login
+def procesos_eliminar(id):
+    conn = conexion_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM paso_insumos WHERE paso_id IN (SELECT id FROM proceso_pasos WHERE proceso_id = %s)", (id,))
+        cur.execute("DELETE FROM paso_responsables WHERE paso_id IN (SELECT id FROM proceso_pasos WHERE proceso_id = %s)", (id,))
+        cur.execute("DELETE FROM proceso_pasos WHERE proceso_id = %s", (id,))
+        cur.execute("DELETE FROM procesos WHERE id = %s AND empresa_id = %s", (id, g.empresa_id))
+        conn.commit()
+        flash("🗑️ Proceso eliminado correctamente", "success")
+    except Exception as e:
+        conn.rollback()
+        flash(f"❌ Error al eliminar: {e}", "danger")
+    finally:
+        cur.close()
+        conn.close()
+    return redirect(url_for("wip.procesos_list"))
+
+
 @bp.get("/ordenes")
 @require_login
 def ordenes_list():
@@ -840,7 +905,7 @@ def ordenes_list():
         return redirect('/login')
 
     eid = g.empresa_id
-    conn = conexion_db(); cur = conn.cursor(dictionary=True)
+    conn = conexion_db(); cur = conn.cursor(dictionary=True, buffered=True)
     try:
         cur.execute("""
             SELECT  op.id,
@@ -875,18 +940,18 @@ def orden_nueva():
     eid = g.empresa_id
 
     if request.method == "POST":
-        pt_id      = int(request.form["pt_id"])
+        producto_terminado_id      = int(request.form["producto_terminado_id"])
         cantidad   = float(request.form["cantidad"])
         fecha      = request.form["fecha"]
         referencia = (request.form.get("referencia") or "").strip()
 
-        conn = conexion_db(); cur = conn.cursor(dictionary=True)
+        conn = conexion_db(); cur = conn.cursor(dictionary=True, buffered=True)
         try:
             # Verificar que el PT exista en esta empresa
             cur.execute("""
                 SELECT id FROM mercancia
                 WHERE id=%s AND empresa_id=%s AND tipo='PT'
-            """, (pt_id, eid))
+            """, (producto_terminado_id, eid))
             if not cur.fetchone():
                 flash("El producto no pertenece a esta empresa.", "warning")
                 return redirect(url_for("wip.orden_nueva"))
@@ -894,9 +959,9 @@ def orden_nueva():
             # Verificar proceso activo del mismo tenant
             cur.execute("""
                 SELECT id FROM procesos
-                WHERE pt_id=%s AND empresa_id=%s AND activo=1
+                WHERE producto_terminado_id=%s AND empresa_id=%s AND activo=1
                 LIMIT 1
-            """, (pt_id, eid))
+            """, (producto_terminado_id, eid))
             proceso = cur.fetchone()
             if not proceso:
                 flash("⚠️ Este producto no tiene proceso de producción configurado.", "warning")
@@ -908,7 +973,7 @@ def orden_nueva():
                     (empresa_id, fecha, pt_mercancia_id, cantidad, estado, referencia)
                 VALUES
                     (%s, %s, %s, %s, 'abierta', %s)
-            """, (eid, fecha, pt_id, cantidad, referencia))
+            """, (eid, fecha, producto_terminado_id, cantidad, referencia))
             orden_id = cur.lastrowid
             conn.commit()
 
@@ -925,7 +990,7 @@ def orden_nueva():
             except: pass
 
     # GET: catálogo de PT del tenant y flag de proceso
-    conn = conexion_db(); cur = conn.cursor(dictionary=True)
+    conn = conexion_db(); cur = conn.cursor(dictionary=True, buffered=True)
     try:
         cur.execute("""
             SELECT  m.id,
@@ -933,7 +998,7 @@ def orden_nueva():
                     (
                       SELECT COUNT(*)
                       FROM procesos p
-                      WHERE p.pt_id = m.id
+                      WHERE p.producto_terminado_id = m.id
                         AND p.empresa_id = %s
                         AND p.activo = 1
                     ) AS tiene_proceso
@@ -961,7 +1026,7 @@ def orden_detalle(orden_id):
     eid = g.empresa_id
 
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
 
     # 1) Encabezado de la orden (valida pertenencia a la empresa)
     cur.execute("""
@@ -988,7 +1053,7 @@ def orden_detalle(orden_id):
         LEFT JOIN proceso_pasos pp
                ON pp.proceso_id = p.id
               AND pp.empresa_id = %s
-        WHERE   p.pt_id = %s
+        WHERE   p.producto_terminado_id = %s
           AND   p.empresa_id = %s
           AND   p.activo = 1
         GROUP BY p.id
@@ -1008,7 +1073,7 @@ def orden_detalle(orden_id):
                   AND a.empresa_id = %s
             WHERE   pp.proceso_id = %s
               AND   pp.empresa_id = %s
-            ORDER BY pp.orden
+            ORDER BY pp.numero_paso
             """, (eid, proceso['id'], eid))
         pasos = cur.fetchall()
 
@@ -1016,7 +1081,7 @@ def orden_detalle(orden_id):
     cur.execute("""
         SELECT  im.*,
                 m.nombre AS producto_nombre
-        FROM    inventario_movimientos im
+        FROM    inventario_movimientos_mp im
         JOIN    mercancia m
                   ON m.id = im.mercancia_id
                  AND m.empresa_id = %s
@@ -1037,6 +1102,153 @@ def orden_detalle(orden_id):
         movimientos=movimientos
     )
 
+#@bp.route('/ordenes/<int:orden_id>/iniciar', methods=['POST'])
+#@require_login
+#def orden_iniciar(orden_id):
+#    """Iniciar orden de producción (multiempresa)"""
+#    if session.get('rol') != 'admin':
+#        flash('Acceso no autorizado.', 'danger')
+#        return redirect('/login')
+#
+#    from datetime import date
+#    conn = conexion_db()
+#    cur = conn.cursor(dictionary=True, buffered=True)
+#    eid = g.empresa_id
+#
+#    try:
+#        # 1. Obtener datos de la orden
+#        cur.execute("""
+#            SELECT op.*, m.nombre AS producto_nombre, p.id AS proceso_id
+#            FROM orden_produccion op
+#            JOIN mercancia m 
+#                 ON m.id = op.pt_mercancia_id
+#                AND m.empresa_id = %s
+#            LEFT JOIN procesos p 
+#                 ON p.producto_terminado_id = op.pt_mercancia_id
+#                AND p.empresa_id = %s
+#            WHERE op.id = %s
+#              AND op.empresa_id = %s
+#        """, (eid, eid, orden_id, eid))
+#        orden = cur.fetchone()
+#
+#        if not orden:
+#            flash("Orden no encontrada o no pertenece a tu empresa.", "warning")
+#            return redirect(url_for("wip.ordenes_list"))
+#
+#        if orden['estado'] == 'cerrada':
+#            flash("Esta orden ya está cerrada", "info")
+#            return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
+#
+#        if not orden['proceso_id']:
+#            flash("⚠️ Esta orden no tiene proceso asociado.", "warning")
+#            return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
+#
+#        # 2. Obtener insumos del proceso (solo de la empresa)
+#        cur.execute("""
+#            SELECT 
+#                pi.mercancia_id,
+#                pi.cantidad,
+#                m.nombre AS mp_nombre,
+#                m.tipo_inventario_id
+#            FROM proceso_pasos pp
+#            JOIN paso_insumos pi 
+#                 ON pi.paso_id = pp.id
+#            JOIN mercancia m 
+#                 ON m.id = pi.mercancia_id
+#                AND m.empresa_id = %s
+#            WHERE pp.proceso_id = %s
+#              AND pp.empresa_id = %s
+#              AND pi.cantidad > 0
+#        """, (eid, orden['proceso_id'], eid))
+#        insumos = cur.fetchall()
+#
+#        if not insumos:
+#            flash("⚠️ El proceso no tiene insumos definidos.", "warning")
+#            return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
+#
+#        # 3. Calcular cantidades
+#        cantidad_producida = float(orden['cantidad'])
+#        lote_base = 12.0
+#        factor = cantidad_producida / lote_base
+#
+#        errores = []
+#        movimientos_realizados = 0
+#        costo_total_produccion = 0
+#
+#        # 4. Consumir materias primas
+#        from app import calcular_precio_promedio_periodo
+#
+#        for insumo in insumos:
+#            cantidad_a_consumir = float(insumo['cantidad']) * factor
+#
+#            # Calcular stock actual (solo del tenant)
+#            cur.execute("""
+#                SELECT 
+#                    COALESCE(SUM(CASE 
+#                        WHEN tipo_movimiento IN ('compra','entrada') THEN unidades 
+#                        ELSE -unidades 
+#                    END), 0) AS stock_actual
+#                FROM inventario_movimientos_mp
+#                WHERE mercancia_id = %s
+#                  AND empresa_id = %s
+#            """, (insumo['mp_id'], eid))
+#            result = cur.fetchone()
+#            stock_actual = float(result['stock_actual']) if result else 0
+#
+#            # Calcular precio promedio
+#            precio_unitario = calcular_precio_promedio_periodo(insumo['mp_id'])
+#
+#            print(f"\n{'='*60}")
+#            print(f"🔍 DEBUG COSTEO - MP: {insumo['mp_nombre']} (ID: {insumo['mp_id']})")
+#            print(f"{'='*60}")
+#            print(f"Precio: ${precio_unitario:.2f} | Stock: {stock_actual:.2f} | "
+#                  f"Consumo: {cantidad_a_consumir:.2f} | Total: ${cantidad_a_consumir * precio_unitario:.2f}")
+#            print("="*60)
+#
+#            if stock_actual < cantidad_a_consumir:
+#                errores.append(f"Stock insuficiente de {insumo['mp_nombre']} (necesitas {cantidad_a_consumir:.2f}, hay {stock_actual:.2f})")
+#                continue
+#
+#            costo_consumo = cantidad_a_consumir * precio_unitario
+#            costo_total_produccion += costo_consumo
+#
+#            # Registrar salida
+#            cur.execute("""
+#                INSERT INTO inventario_movimientos_mp
+#                    (empresa_id, tipo_inventario_id, mercancia_id, fecha,
+#                     tipo_movimiento, unidades, precio_unitario, referencia)
+#                VALUES (%s, %s, %s, %s, 'salida', %s, %s, %s)
+#            """, (eid, insumo['tipo_inventario_id'] or 1, insumo['mp_id'], date.today(),
+#                  cantidad_a_consumir, precio_unitario, f"Orden #{orden_id} - Inicio producción"))
+#
+#            # Actualizar inventario_mp (tenant aislado)
+#            cur.execute("""
+#                INSERT INTO inventario_mp
+#                    (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado)
+#                VALUES (%s, %s, %s, 0, 0, %s, 1)
+#                ON DUPLICATE KEY UPDATE salidas = salidas + VALUES(salidas)
+#            """, (eid, insumo['mp_id'], insumo['mp_nombre'], cantidad_a_consumir))
+#
+#            movimientos_realizados += 1
+#
+#        if errores:
+#            conn.rollback()
+#            for e in errores:
+#                flash(f"❌ {e}", "danger")
+#            return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
+#
+#        conn.commit()
+#        flash(f"✅ Orden #{orden_id} iniciada. {movimientos_realizados} insumos consumidos. Costo total: ${costo_total_produccion:,.2f}", "success")
+#        return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
+#
+#    except Exception as e:
+#        conn.rollback()
+#        flash(f"❌ Error al iniciar orden: {e}", "danger")
+#        return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
+#    finally:
+#        cur.close(); conn.close()
+
+
 @bp.route('/ordenes/<int:orden_id>/iniciar', methods=['POST'])
 @require_login
 def orden_iniciar(orden_id):
@@ -1047,7 +1259,7 @@ def orden_iniciar(orden_id):
 
     from datetime import date
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     eid = g.empresa_id
 
     try:
@@ -1055,19 +1267,14 @@ def orden_iniciar(orden_id):
         cur.execute("""
             SELECT op.*, m.nombre AS producto_nombre, p.id AS proceso_id
             FROM orden_produccion op
-            JOIN mercancia m 
-                 ON m.id = op.pt_mercancia_id
-                AND m.empresa_id = %s
-            LEFT JOIN procesos p 
-                 ON p.pt_id = op.pt_mercancia_id
-                AND p.empresa_id = %s
-            WHERE op.id = %s
-              AND op.empresa_id = %s
+            JOIN mercancia m ON m.id = op.pt_mercancia_id AND m.empresa_id = %s
+            LEFT JOIN procesos p ON p.producto_terminado_id = op.pt_mercancia_id AND p.empresa_id = %s
+            WHERE op.id = %s AND op.empresa_id = %s
         """, (eid, eid, orden_id, eid))
         orden = cur.fetchone()
 
         if not orden:
-            flash("Orden no encontrada o no pertenece a tu empresa.", "warning")
+            flash("Orden no encontrada.", "warning")
             return redirect(url_for("wip.ordenes_list"))
 
         if orden['estado'] == 'cerrada':
@@ -1078,22 +1285,13 @@ def orden_iniciar(orden_id):
             flash("⚠️ Esta orden no tiene proceso asociado.", "warning")
             return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
 
-        # 2. Obtener insumos del proceso (solo de la empresa)
+        # 2. Obtener insumos del proceso
         cur.execute("""
-            SELECT 
-                pi.mp_id,
-                pi.cantidad_por_lote,
-                m.nombre AS mp_nombre,
-                m.tipo_inventario_id
+            SELECT pi.mercancia_id, pi.cantidad, m.nombre AS mp_nombre
             FROM proceso_pasos pp
-            JOIN paso_insumos pi 
-                 ON pi.paso_id = pp.id
-            JOIN mercancia m 
-                 ON m.id = pi.mp_id
-                AND m.empresa_id = %s
-            WHERE pp.proceso_id = %s
-              AND pp.empresa_id = %s
-              AND pi.cantidad_por_lote > 0
+            JOIN paso_insumos pi ON pi.paso_id = pp.id
+            JOIN mercancia m ON m.id = pi.mercancia_id AND m.empresa_id = %s
+            WHERE pp.proceso_id = %s AND pp.empresa_id = %s AND pi.cantidad > 0
         """, (eid, orden['proceso_id'], eid))
         insumos = cur.fetchall()
 
@@ -1101,68 +1299,69 @@ def orden_iniciar(orden_id):
             flash("⚠️ El proceso no tiene insumos definidos.", "warning")
             return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
 
-        # 3. Calcular cantidades
+        # 3. Calcular factor de producción
         cantidad_producida = float(orden['cantidad'])
         lote_base = 12.0
         factor = cantidad_producida / lote_base
 
         errores = []
         movimientos_realizados = 0
-        costo_total_produccion = 0
 
         # 4. Consumir materias primas
-        from app import calcular_precio_promedio_periodo
-
         for insumo in insumos:
-            cantidad_a_consumir = float(insumo['cantidad_por_lote']) * factor
+            mercancia_id = insumo['mercancia_id']
+            cantidad_a_consumir = float(insumo['cantidad']) * factor
 
-            # Calcular stock actual (solo del tenant)
+            # Stock real desde detalle_compra - salidas
             cur.execute("""
-                SELECT 
-                    COALESCE(SUM(CASE 
-                        WHEN tipo_movimiento IN ('compra','entrada') THEN unidades 
-                        ELSE -unidades 
-                    END), 0) AS stock_actual
-                FROM inventario_movimientos
-                WHERE mercancia_id = %s
-                  AND empresa_id = %s
-            """, (insumo['mp_id'], eid))
-            result = cur.fetchone()
-            stock_actual = float(result['stock_actual']) if result else 0
+                SELECT COALESCE(SUM(dc.contenido_neto_total), 0) as entradas
+                FROM detalle_compra dc
+                WHERE dc.mercancia_id = %s AND dc.empresa_id = %s
+            """, (mercancia_id, eid))
+            entradas = float(cur.fetchone()['entradas'])
 
-            # Calcular precio promedio
-            precio_unitario = calcular_precio_promedio_periodo(insumo['mp_id'])
+            cur.execute("""
+                SELECT COALESCE(SUM(im.cantidad), 0) as salidas
+                FROM inventario_movimientos_mp im
+                WHERE im.mp_id = %s AND im.empresa_id = %s
+                AND im.tipo_movimiento = 'salida'
+            """, (mercancia_id, eid))
+            salidas = float(cur.fetchone()['salidas'])
 
-            print(f"\n{'='*60}")
-            print(f"🔍 DEBUG COSTEO - MP: {insumo['mp_nombre']} (ID: {insumo['mp_id']})")
-            print(f"{'='*60}")
-            print(f"Precio: ${precio_unitario:.2f} | Stock: {stock_actual:.2f} | "
-                  f"Consumo: {cantidad_a_consumir:.2f} | Total: ${cantidad_a_consumir * precio_unitario:.2f}")
-            print("="*60)
+            stock_actual = entradas - salidas
 
             if stock_actual < cantidad_a_consumir:
-                errores.append(f"Stock insuficiente de {insumo['mp_nombre']} (necesitas {cantidad_a_consumir:.2f}, hay {stock_actual:.2f})")
+                errores.append(
+                    f"Stock insuficiente de {insumo['mp_nombre']} "
+                    f"(necesitas {cantidad_a_consumir:.2f}, hay {stock_actual:.2f})"
+                )
                 continue
 
-            costo_consumo = cantidad_a_consumir * precio_unitario
-            costo_total_produccion += costo_consumo
-
-            # Registrar salida
+            # Precio promedio
             cur.execute("""
-                INSERT INTO inventario_movimientos
-                    (empresa_id, tipo_inventario_id, mercancia_id, fecha,
-                     tipo_movimiento, unidades, precio_unitario, referencia)
-                VALUES (%s, %s, %s, %s, 'salida', %s, %s, %s)
-            """, (eid, insumo['tipo_inventario_id'] or 1, insumo['mp_id'], date.today(),
-                  cantidad_a_consumir, precio_unitario, f"Orden #{orden_id} - Inicio producción"))
+                SELECT COALESCE(
+                    SUM(dc.precio_total) / NULLIF(SUM(dc.contenido_neto_total), 0), 0
+                ) as precio_promedio
+                FROM detalle_compra dc
+                WHERE dc.mercancia_id = %s AND dc.empresa_id = %s
+            """, (mercancia_id, eid))
+            precio_unitario = float(cur.fetchone()['precio_promedio'] or 0)
 
-            # Actualizar inventario_mp (tenant aislado)
+            # Registrar salida en inventario_movimientos_mp
             cur.execute("""
-                INSERT INTO inventario_mp
-                    (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado)
-                VALUES (%s, %s, %s, 0, 0, %s, 1)
-                ON DUPLICATE KEY UPDATE salidas = salidas + VALUES(salidas)
-            """, (eid, insumo['mp_id'], insumo['mp_nombre'], cantidad_a_consumir))
+                INSERT INTO inventario_movimientos_mp
+                    (empresa_id, mp_id, fecha, tipo_movimiento, cantidad,
+                     costo_unitario, costo_total, referencia_tipo, referencia_id,
+                     observaciones, usuario_id)
+                VALUES (%s, %s, %s, 'salida', %s, %s, %s, 'orden_produccion', %s, %s, %s)
+            """, (
+                eid, mercancia_id, date.today(),
+                cantidad_a_consumir, precio_unitario,
+                cantidad_a_consumir * precio_unitario,
+                orden_id,
+                f"OP#{orden_id} - Producción {orden['producto_nombre']}",
+                g.usuario_id
+            ))
 
             movimientos_realizados += 1
 
@@ -1172,8 +1371,13 @@ def orden_iniciar(orden_id):
                 flash(f"❌ {e}", "danger")
             return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
 
+        # 5. Cambiar estado a 'en_proceso'
+        cur.execute("""
+            UPDATE orden_produccion SET estado = 'en_proceso' WHERE id = %s AND empresa_id = %s
+        """, (orden_id, eid))
+
         conn.commit()
-        flash(f"✅ Orden #{orden_id} iniciada. {movimientos_realizados} insumos consumidos. Costo total: ${costo_total_produccion:,.2f}", "success")
+        flash(f"✅ Orden #{orden_id} iniciada. {movimientos_realizados} insumos consumidos.", "success")
         return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
 
     except Exception as e:
@@ -1181,7 +1385,8 @@ def orden_iniciar(orden_id):
         flash(f"❌ Error al iniciar orden: {e}", "danger")
         return redirect(url_for("wip.orden_detalle", orden_id=orden_id))
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
 
 @bp.post("/ordenes/<int:orden_id>/cerrar")
 @require_login
@@ -1195,7 +1400,7 @@ def orden_cerrar(orden_id):
     eid = g.empresa_id
 
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
 
     try:
         # 1) Obtener orden y validar pertenencia
@@ -1247,7 +1452,7 @@ def orden_cerrar(orden_id):
 
         # 3) Registrar movimiento de entrada al almacén de PT
         cur.execute("""
-            INSERT INTO inventario_movimientos
+            INSERT INTO inventario_movimientos_pt
                 (empresa_id, tipo_inventario_id, mercancia_id, fecha,
                  tipo_movimiento, unidades, precio_unitario, referencia)
             VALUES
@@ -1295,7 +1500,7 @@ def centro_incidencias():
         return redirect(url_for('login'))
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         areas_sistema = [
@@ -1401,7 +1606,7 @@ def incidencia_detalle(incidencia_id):
         return redirect(url_for('login'))
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         cur.execute("""
@@ -1474,7 +1679,7 @@ def notificaciones_pendientes():
     
     usuario_id = session['usuario_id']
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         cur.execute("""
@@ -1530,7 +1735,7 @@ def centro_alertas():
         return redirect(url_for('login'))
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         # Obtener alertas agrupadas por área
@@ -1618,7 +1823,7 @@ def alerta_detalle(alerta_id):
         return redirect(url_for('login'))
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         cur.execute("""
@@ -1682,7 +1887,7 @@ def procesar_alerta(alerta_id):
         return redirect(url_for('login'))
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         if request.method == 'GET':
@@ -1750,7 +1955,7 @@ def tarea_detalle(tarea_id):
         return redirect(url_for('login'))
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         cur.execute("""
@@ -1823,7 +2028,7 @@ def api_alertas_resumen():
     
     from app import conexion_db
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         cur.execute("""
@@ -1882,7 +2087,7 @@ def api_incidencias_resumen():
     from app import conexion_db
     usuario_id = session['usuario_id']
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         cur.execute("""

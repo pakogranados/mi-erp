@@ -1,0 +1,91 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+  <h2 class="page-title">Órdenes de Compra Automáticas</h2>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} mb-3">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <p class="mb-0">
+        <i class="fas fa-info-circle text-primary"></i>
+        Las órdenes automáticas se generan diariamente cuando el inventario de materias primas está por debajo del mínimo configurado.
+      </p>
+    </div>
+  </div>
+
+  {% if ordenes and ordenes|length > 0 %}
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width:100px;">Folio</th>
+            <th style="width:150px;">Fecha Generación</th>
+            <th style="width:120px;">Estado</th>
+            <th style="width:100px;">Items</th>
+            <th style="width:100px;">Urgentes</th>
+            <th style="width:120px;">Total</th>
+            <th style="width:150px;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in ordenes %}
+          <tr>
+            <td><strong>{{ o.folio }}</strong></td>
+            <td class="text-muted small">{{ o.fecha_generacion_fmt }}</td>
+            <td>
+              {% if o.estado == 'pendiente_revision' %}
+                <span class="badge bg-warning">Pendiente</span>
+              {% elif o.estado == 'aprobada' %}
+                <span class="badge bg-success">Aprobada</span>
+              {% elif o.estado == 'rechazada' %}
+                <span class="badge bg-danger">Rechazada</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ o.estado }}</span>
+              {% endif %}
+            </td>
+            <td class="text-center">{{ o.total_items }}</td>
+            <td class="text-center">
+              {% if o.items_urgentes > 0 %}
+                <span class="badge bg-danger">{{ o.items_urgentes }} 🔴</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              {% if o.total > 0 %}
+                ${{ "%.2f"|format(o.total) }}
+              {% else %}
+                <span class="text-muted">Sin precios</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              <a href="{{ url_for('ordenes_auto_detalle', orden_id=o.id) }}" 
+                 class="btn btn-sm btn-primary">
+                <i class="fas fa-eye"></i> Ver Detalle
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info">
+      No hay órdenes automáticas generadas. El sistema generará órdenes cuando el inventario esté bajo mínimo.
+    </div>
+  {% endif %}
+
+  <div class="mt-4">
+    <a href="{{ url_for('configurar_inventarios') }}" class="btn btn-secondary">
+      <i class="fas fa-sliders-h"></i> Configurar Mínimos/Máximos
+    </a>
+  </div>
+</div>
+{% endblock %}

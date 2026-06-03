@@ -21,6 +21,9 @@ import os
 from werkzeug.utils import secure_filename
 import csv
 import sys
+import json
+from utils.decorators import require_login
+import os
 
 # ===== DETECTAR ENTORNO (PythonAnywhere vs Local) =====
 if '/home/' in os.getcwd():
@@ -46,14 +49,14 @@ from db import conexion_db
 from utils.decorators import require_login, require_role
 
 # Importar blueprints del sistema multi-tenant
-try:
-    from routes import auth, onboarding, dashboard, admin
-    app.register_blueprint(auth.bp)
-    app.register_blueprint(onboarding.bp)
-    app.register_blueprint(dashboard.bp)
-    app.register_blueprint(admin.bp)
-except ImportError:
-    pass  # Los blueprints se cargarán más adelante en el código
+#try:
+ #   from routes import auth, onboarding, dashboard, admin
+ #   app.register_blueprint(auth.bp)
+ #   app.register_blueprint(onboarding.bp)
+ #   app.register_blueprint(dashboard.bp)
+ #   app.register_blueprint(admin.bp)
+#except ImportError:
+ #   pass  # Los blueprints se cargarán más adelante en el código
 
 # ===== IMPORTAR API BLUEPRINT =====
 try:
@@ -62,6 +65,7 @@ try:
 except ImportError:
     pass
 
+mail = Mail(app)
 
 # ===== CONFIGURACIÓN DE MAIL (LEE DESDE .env) =====
 app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
@@ -96,6 +100,491 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ===== IMPORTAR DECORADORES DESDE UTILS =====
 from utils.decorators import require_login, require_role
+
+
+# Configuración de uploads
+UPLOAD_FOLDER = os.path.join('static', 'logos')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+# Crear carpeta si no existe
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/admin/empresas/logos', methods=['GET', 'POST'])
+@require_login
+def gestionar_logos_empresas():
+    """Gestión de logos de empresas"""
+    if session.get('rol') != 'admin':
+        flash('Solo administradores pueden gestionar logos', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        empresa_id = request.form.get('empresa_id')
+        
+        if 'logo' not in request.files:
+            flash('No se seleccionó ningún archivo', 'warning')
+            return redirect(url_for('gestionar_logos_empresas'))
+        
+        file = request.files['logo']
+        
+        if file.filename == '':
+            flash('No se seleccionó ningún archivo', 'warning')
+            return redirect(url_for('gestionar_logos_empresas'))
+        
+        if file and allowed_file(file.filename):
+            # Generar nombre seguro
+            filename = secure_filename(f"empresa_{empresa_id}_{file.filename}")
+            filepath = os.path.join(UPLOAD_FOLDER, filename)
+            
+            # Guardar archivo
+            file.save(filepath)
+            
+            # Actualizar BD
+            logo_url = f'/static/logos/{filename}'
+            
+            conn = conexion_db()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE empresas 
+                    SET logo_url = %s 
+                    WHERE id = %s
+                """, (logo_url, empresa_id))
+                conn.commit()
+                flash('✅ Logo actualizado correctamente', 'success')
+            except Exception as e:
+                conn.rollback()
+                flash(f'❌ Error: {str(e)}', 'danger')
+            finally:
+                cursor.close()
+                conn.close()
+            
+            return redirect(url_for('gestionar_logos_empresas'))
+        else:
+            flash('❌ Formato no válido. Solo se permiten: PNG, JPG, JPEG, GIF', 'danger')
+            return redirect(url_for('gestionar_logos_empresas'))
+    
+    # GET - Mostrar empresas
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    cursor.execute("""
+        SELECT 
+            e.id,
+            e.nombre,
+            e.logo_url,
+            c.razon_social as contratante_nombre,
+            COUNT(m.id) as total_productos
+        FROM empresas e
+        LEFT JOIN contratantes c ON e.contratante_id = c.id
+        LEFT JOIN mercancia m ON m.empresa_id = e.id
+        GROUP BY e.id, e.nombre, e.logo_url, c.razon_social
+        ORDER BY e.nombre
+    """)
+    
+    empresas = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return render_template('admin/gestionar_logos.html', empresas=empresas)
+
+
+@app.route('/admin/empresas/<int:empresa_id>/eliminar-logo', methods=['POST'])
+@require_login
+def eliminar_logo_empresa(empresa_id):
+    """Eliminar logo de empresa"""
+    if session.get('rol') != 'admin':
+        flash('Solo administradores pueden eliminar logos', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Obtener logo actual
+        cursor.execute("SELECT logo_url FROM empresas WHERE id = %s", (empresa_id,))
+        empresa = cursor.fetchone()
+        
+        if empresa and empresa['logo_url']:
+            # Eliminar archivo físico
+            logo_path = empresa['logo_url'].replace('/static/', 'static/')
+            if os.path.exists(logo_path):
+                os.remove(logo_path)
+            
+            # Actualizar BD
+            cursor.execute("UPDATE empresas SET logo_url = NULL WHERE id = %s", (empresa_id,))
+            conn.commit()
+            flash('✅ Logo eliminado correctamente', 'success')
+        else:
+            flash('⚠️ Esta empresa no tiene logo', 'warning')
+            
+    except Exception as e:
+        conn.rollback()
+        flash(f'❌ Error: {str(e)}', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return redirect(url_for('gestionar_logos_empresas'))
+
+
+
+
+#============================
+#  ADMINISTRACION DASHBOARD
+#============================
+
+# ============================================
+# DASHBOARDS POR MÓDULO
+# Agregar estas rutas a app.py
+# ============================================
+
+@app.route('/dashboard/administracion')
+@require_login
+def dashboard_administracion():
+    """Dashboard del módulo de Administración"""
+    eid = g.empresa_id
+    
+    db = conexion_db()
+    cur = db.cursor(dictionary=True)
+    
+    try:
+        # Obtener video configurado
+        cur.execute("""
+            SELECT youtube_url, titulo, descripcion, duracion 
+            FROM dashboard_videos 
+            WHERE modulo = 'administracion' AND activo = 1
+        """)
+        video = cur.fetchone()
+        
+        # Métricas: Total usuarios
+        cur.execute("""
+            SELECT COUNT(*) as total 
+            FROM usuarios 
+            WHERE empresa_id = %s
+        """, (eid,))
+        total_usuarios = cur.fetchone()['total']
+        
+        # Métricas: Usuarios activos
+        cur.execute("""
+            SELECT COUNT(*) as activos 
+            FROM usuarios 
+            WHERE empresa_id = %s AND activo = 1
+        """, (eid,))
+        usuarios_activos = cur.fetchone()['activos']
+        
+        # Métricas: Áreas de producción
+        cur.execute("""
+            SELECT COUNT(*) as areas 
+            FROM areas_produccion 
+            WHERE empresa_id = %s AND activo = 1
+        """, (eid,))
+        areas_produccion = cur.fetchone()['areas']
+        
+        # Métricas: Empresas activas (solo para contratantes)
+        cur.execute("""
+            SELECT COUNT(*) as empresas 
+            FROM empresas 
+            WHERE activo = 1
+        """)
+        empresas_activas = cur.fetchone()['empresas']
+        
+        porcentaje_activos = round((usuarios_activos / total_usuarios * 100), 1) if total_usuarios > 0 else 0
+        
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_administracion.html',
+            video_url=video['youtube_url'] if video and video['youtube_url'] else None,
+            video_titulo=video['titulo'] if video else None,
+            video_duracion=video['duracion'] if video else None,
+            total_usuarios=total_usuarios,
+            usuarios_activos=usuarios_activos,
+            porcentaje_activos=porcentaje_activos,
+            areas_produccion=areas_produccion,
+            empresas_activas=empresas_activas
+        )
+        
+    except Exception as e:
+        print(f"Error en dashboard_administracion: {e}")
+        cur.close()
+        db.close()
+        
+        # Retornar con datos placeholder si hay error
+        return render_template(
+            'admin/dashboard_administracion.html',
+            video_url=None,
+            total_usuarios=12,
+            usuarios_activos=10,
+            porcentaje_activos=83.3,
+            areas_produccion=5,
+            empresas_activas=3
+        )
+
+
+@app.route('/dashboard/compras')
+@require_login
+def dashboard_compras():
+    """Dashboard del módulo de Compras"""
+    eid = g.empresa_id
+    
+    db = conexion_db()
+    cur = db.cursor(dictionary=True)
+    
+    try:
+        # Obtener video configurado
+        cur.execute("""
+            SELECT youtube_url, titulo, descripcion, duracion 
+            FROM dashboard_videos 
+            WHERE modulo = 'compras' AND activo = 1
+        """)
+        video = cur.fetchone()
+        
+        # TODO: Agregar queries reales cuando estén las tablas completas
+        # Por ahora datos de ejemplo
+        
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_compras.html',
+            video_url=video['youtube_url'] if video and video['youtube_url'] else None,
+            # Datos placeholder
+            compras_mes=125000.00,
+            comparativo_mes_anterior=15.5,
+            comparativo_anio_anterior=-8.2,
+            proveedores_top=[],
+            ordenes_abiertas=12,
+            antiguedad_promedio=18
+        )
+        
+    except Exception as e:
+        print(f"Error en dashboard_compras: {e}")
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_compras.html',
+            video_url=None,
+            compras_mes=125000.00,
+            comparativo_mes_anterior=15.5,
+            comparativo_anio_anterior=-8.2,
+            proveedores_top=[],
+            ordenes_abiertas=12,
+            antiguedad_promedio=18
+        )
+
+
+@app.route('/dashboard/ventas')
+@require_login
+def dashboard_ventas():
+    """Dashboard del módulo de Ventas"""
+    eid = g.empresa_id
+    
+    db = conexion_db()
+    cur = db.cursor(dictionary=True)
+    
+    try:
+        # Obtener video configurado
+        cur.execute("""
+            SELECT youtube_url, titulo, descripcion, duracion 
+            FROM dashboard_videos 
+            WHERE modulo = 'ventas' AND activo = 1
+        """)
+        video = cur.fetchone()
+        
+        # TODO: Agregar queries reales
+        
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_ventas.html',
+            video_url=video['youtube_url'] if video and video['youtube_url'] else None,
+            ventas_mes=285000.00,
+            porcentaje_objetivo=85.5,
+            ventas_mensuales_actual=[],
+            ventas_mensuales_anterior=[]
+        )
+        
+    except Exception as e:
+        print(f"Error en dashboard_ventas: {e}")
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_ventas.html',
+            video_url=None,
+            ventas_mes=285000.00,
+            porcentaje_objetivo=85.5,
+            ventas_mensuales_actual=[],
+            ventas_mensuales_anterior=[]
+        )
+
+
+@app.route('/dashboard/inventario')
+@require_login
+def dashboard_inventario():
+    """Dashboard del módulo de Inventario"""
+    eid = g.empresa_id
+    
+    db = conexion_db()
+    cur = db.cursor(dictionary=True)
+    
+    try:
+        # Obtener video configurado
+        cur.execute("""
+            SELECT youtube_url, titulo, descripcion, duracion 
+            FROM dashboard_videos 
+            WHERE modulo = 'inventario' AND activo = 1
+        """)
+        video = cur.fetchone()
+        
+        # TODO: Agregar queries reales
+        
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_inventario.html',
+            video_url=video['youtube_url'] if video and video['youtube_url'] else None,
+            importe_mp_mensual=45000.00
+        )
+        
+    except Exception as e:
+        print(f"Error en dashboard_inventario: {e}")
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_inventario.html',
+            video_url=None,
+            importe_mp_mensual=45000.00
+        )
+
+
+@app.route('/dashboard/produccion')
+@require_login
+def dashboard_produccion():
+    """Dashboard del módulo de Producción"""
+    eid = g.empresa_id
+    
+    db = conexion_db()
+    cur = db.cursor(dictionary=True)
+    
+    try:
+        # Obtener video configurado
+        cur.execute("""
+            SELECT youtube_url, titulo, descripcion, duracion 
+            FROM dashboard_videos 
+            WHERE modulo = 'produccion' AND activo = 1
+        """)
+        video = cur.fetchone()
+        
+        # TODO: Agregar queries reales
+        
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_produccion.html',
+            video_url=video['youtube_url'] if video and video['youtube_url'] else None,
+            ordenes_activas=8,
+            produccion_dia=250,
+            eficiencia=92.5
+        )
+        
+    except Exception as e:
+        print(f"Error en dashboard_produccion: {e}")
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_produccion.html',
+            video_url=None,
+            ordenes_activas=8,
+            produccion_dia=250,
+            eficiencia=92.5
+        )
+
+
+# ============================================
+# ADMIN: Configuración de videos de dashboard
+# ============================================
+
+@app.route('/admin/dashboard-videos')
+@require_login
+def admin_dashboard_videos():
+    """Panel para configurar los videos de YouTube de cada dashboard"""
+    
+    db = conexion_db()
+    cur = db.cursor(dictionary=True)
+    
+    try:
+        cur.execute("""
+            SELECT * FROM dashboard_videos 
+            ORDER BY nombre ASC
+        """)
+        videos = cur.fetchall()
+        
+        cur.close()
+        db.close()
+        
+        return render_template(
+            'admin/dashboard_videos.html',
+            videos=videos
+        )
+        
+    except Exception as e:
+        print(f"Error en admin_dashboard_videos: {e}")
+        cur.close()
+        db.close()
+        flash('Error al cargar configuración de videos', 'danger')
+        return redirect(url_for('dashboard'))
+
+
+@app.route('/admin/dashboard-videos/update/<modulo>', methods=['POST'])
+@require_login
+def admin_dashboard_videos_update(modulo):
+    """Actualizar link de YouTube para un módulo"""
+    
+    youtube_url = request.form.get('youtube_url', '').strip()
+    titulo = request.form.get('titulo', '').strip()
+    descripcion = request.form.get('descripcion', '').strip()
+    duracion = request.form.get('duracion', '').strip()
+    
+    db = conexion_db()
+    cur = db.cursor()
+    
+    try:
+        cur.execute("""
+            UPDATE dashboard_videos 
+            SET youtube_url = %s,
+                titulo = %s,
+                descripcion = %s,
+                duracion = %s
+            WHERE modulo = %s
+        """, (youtube_url, titulo, descripcion, duracion, modulo))
+        
+        db.commit()
+        cur.close()
+        db.close()
+        
+        flash(f'Video de {modulo.title()} actualizado correctamente', 'success')
+        return redirect(url_for('admin_dashboard_videos'))
+        
+    except Exception as e:
+        print(f"Error al actualizar video: {e}")
+        db.rollback()
+        cur.close()
+        db.close()
+        
+        flash('Error al actualizar video', 'danger')
+        return redirect(url_for('admin_dashboard_videos'))
 
 
 # ===== MAIL =====
@@ -253,38 +742,49 @@ def require_token(f):
 
 # ===== FUNCIONES HELPER =====
 
-def require_login(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get("usuario_id") or not session.get("empresa_id"):
-            abort(401)
-        g.empresa_id = int(session["empresa_id"])
-        g.usuario_id = int(session["usuario_id"])
-        return f(*args, **kwargs)
-    return decorated_function
+#def require_login(f):
+#    @wraps(f)
+#    def decorated_function(*args, **kwargs):
+#        if not session.get("usuario_id") or not session.get("empresa_id"):
+#            abort(401)
+#        g.empresa_id = int(session["empresa_id"])
+#        g.usuario_id = int(session["usuario_id"])
+#        return f(*args, **kwargs)
+#    return decorated_function
           
 @app.route('/cambiar-empresa/<int:empresa_id>', methods=['POST'])
 @require_login
 def cambiar_empresa(empresa_id):
     """Permite al usuario cambiar de empresa activa"""
     uid = g.usuario_id
+    contratante_id = g.contratante_id
+    empresas_acceso = g.empresas_acceso
+    
+    # CRÍTICO: Verificar que tiene acceso a esta empresa
+    if empresa_id not in empresas_acceso:
+        flash('❌ No tienes acceso a esta empresa', 'danger')
+        return redirect(request.referrer or url_for('dashboard'))
     
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     
     try:
-        # Verificar que la empresa existe y está activa
+        # Verificar que la empresa existe, está activa Y pertenece al contratante
         cur.execute("""
             SELECT id, nombre 
             FROM empresas 
-            WHERE id = %s AND activo = 1
-        """, (empresa_id,))
+            WHERE id = %s 
+            AND contratante_id = %s 
+            AND activo = 1
+        """, (empresa_id, contratante_id))
         
         empresa = cur.fetchone()
         
         if empresa:
             session['empresa_id'] = empresa_id
+            session['empresa_nombre'] = empresa['nombre']
             flash(f'✅ Cambiado a: {empresa["nombre"]}', 'success')
+            session['empresa_logo'] = empresa.get('logo_url')
         else:
             flash('❌ Empresa no disponible', 'danger')
         
@@ -294,7 +794,7 @@ def cambiar_empresa(empresa_id):
         cur.close()
         conn.close()
     
-    return redirect(request.referrer or url_for('panel_de_control'))
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # --- Caja de cobro (Flask) ---
@@ -404,6 +904,7 @@ def caja_agregar():
     return redirect(url_for("caja"))
 
 @app.post("/caja/eliminar/<int:idx>")
+@require_login
 def caja_eliminar(idx):
     session.setdefault("carrito", [])
     if 0 <= idx < len(session["carrito"]):
@@ -412,6 +913,7 @@ def caja_eliminar(idx):
     return redirect(url_for("caja"))
 
 @app.post("/caja/vaciar")
+@require_login
 def caja_vaciar():
     session["carrito"] = []
     session.modified = True
@@ -525,6 +1027,7 @@ def caja_cobrar():
     ))
 
 @app.post("/caja/hold")
+@require_login
 def caja_hold():
     carrito = session.get("carrito", [])
     if not carrito:
@@ -550,6 +1053,7 @@ def caja_hold():
     return redirect(url_for("caja"))
 
 @app.post("/caja/hold/resume/<int:hold_id>")
+@require_login
 def caja_hold_resume(hold_id):
     holds = session.get("caja_holds", [])
     target = None
@@ -572,6 +1076,7 @@ def caja_hold_resume(hold_id):
     return redirect(url_for("caja"))
 
 @app.post("/caja/pagar")
+@require_login
 def caja_pagar():
     carrito = session.get("carrito", [])
     aplica_iva = session.get("caja_aplica_iva", True)
@@ -728,34 +1233,159 @@ def precio_pt(mercancia_id: int, empresa_id: int = None) -> Decimal:
     return (costo * (Decimal("1") + pct_auto)).quantize(Decimal("0.01"))
 
 @app.route('/test123')
+@require_login
 def test123():
     return "<h1>FUNCIONA</h1><p>Session: " + str(session.get('username', 'No hay usuario')) + "</p>"
 
+@app.route('/test_session')
+@require_login
+def test_session():
+    """Ruta de prueba para verificar variables de sesión"""
+    return jsonify({
+        'SESSION': {
+            'usuario_id': session.get('usuario_id'),
+            'empresa_id': session.get('empresa_id'),
+            'contratante_id': session.get('contratante_id'),
+            'rango': session.get('rango'),
+            'empresas_acceso': session.get('empresas_acceso'),
+            'puede_agregar_usuarios': session.get('puede_agregar_usuarios')
+        },
+        'G (Flask context)': {
+            'usuario_id': getattr(g, 'usuario_id', None),
+            'empresa_id': getattr(g, 'empresa_id', None),
+            'contratante_id': getattr(g, 'contratante_id', None),
+            'rango': getattr(g, 'rango', None)
+        }
+    })
 
 
 
+
+# ==================== PERFIL DEL GRUPO EMPRESARIAL ====================
+
+@app.route('/grupo/perfil')
+@require_login
+def perfil_grupo():
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        # Todas las empresas activas del grupo
+        cur.execute("""
+            SELECT e.id, e.nombre, e.rfc, e.direccion, e.telefono, e.email,
+                   e.logo_url, e.uso_descripcion, e.tipo_empresa,
+                   e.responsable_nombre, e.responsable_puesto,
+                   e.destino_inventario_b2b,
+                   COUNT(DISTINCT u.id) as total_usuarios
+            FROM empresas e
+            LEFT JOIN usuarios u ON u.empresa_id = e.id AND u.activo = 1
+            WHERE e.activo = 1
+            GROUP BY e.id
+            ORDER BY FIELD(e.tipo_empresa, 'holding', 'produccion', 'administracion', 'logistica', 'punto_venta')
+        """)
+        empresas = cur.fetchall()
+
+        # Vínculos B2B entre empresas
+        cur.execute("""
+            SELECT r.empresa_proveedor_id, r.empresa_cliente_id,
+                   ep.nombre as proveedor_nombre, ec.nombre as cliente_nombre,
+                   r.dias_credito
+            FROM relaciones_b2b r
+            JOIN empresas ep ON ep.id = r.empresa_proveedor_id
+            JOIN empresas ec ON ec.id = r.empresa_cliente_id
+            WHERE r.activa = 1
+        """)
+        vinculos = cur.fetchall()
+
+        # Usuarios por empresa con su rol
+        cur.execute("""
+            SELECT u.id, u.nombre, u.puesto, u.rol, u.empresa_id,
+                   e.nombre as empresa_nombre
+            FROM usuarios u
+            JOIN empresas e ON e.id = u.empresa_id
+            WHERE u.activo = 1 AND e.activo = 1
+            ORDER BY e.id, u.rol DESC, u.nombre
+        """)
+        usuarios = cur.fetchall()
+
+        # Empresa activa
+        cur.execute("SELECT * FROM empresas WHERE id = %s", (eid,))
+        empresa_activa = cur.fetchone()
+
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('grupo/perfil.html',
+        empresas=empresas,
+        vinculos=vinculos,
+        usuarios=usuarios,
+        empresa_activa=empresa_activa
+    )
+
+@app.route('/grupo/empresa/<int:empresa_id>/editar', methods=['GET', 'POST'])
+@require_login
+def editar_perfil_empresa(empresa_id):
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        if request.method == 'POST':
+            nombre = request.form.get('nombre', '')
+            uso_descripcion = request.form.get('uso_descripcion', '')
+            tipo_empresa = request.form.get('tipo_empresa', 'punto_venta')
+            responsable_nombre = request.form.get('responsable_nombre', '')
+            responsable_puesto = request.form.get('responsable_puesto', '')
+            telefono = request.form.get('telefono', '')
+            email = request.form.get('email', '')
+            direccion = request.form.get('direccion', '')
+
+            cur.execute("""
+                UPDATE empresas SET
+                    nombre = %s,
+                    uso_descripcion = %s,
+                    tipo_empresa = %s,
+                    responsable_nombre = %s,
+                    responsable_puesto = %s,
+                    telefono = %s,
+                    email = %s,
+                    direccion = %s
+                WHERE id = %s
+            """, (nombre, uso_descripcion, tipo_empresa, responsable_nombre,
+                  responsable_puesto, telefono, email, direccion, empresa_id))
+            conn.commit()
+            flash('✅ Perfil actualizado correctamente', 'success')
+            return redirect(url_for('perfil_grupo'))
+
+        cur.execute("SELECT * FROM empresas WHERE id = %s", (empresa_id,))
+        empresa = cur.fetchone()
+        if not empresa:
+            flash('Empresa no encontrada', 'danger')
+            return redirect(url_for('perfil_grupo'))
+
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('grupo/editar_empresa.html', empresa=empresa)
 
 # -----   REGISTRO AL ERP  --------
 
-
-
 @app.route('/registro', methods=['GET', 'POST'])
 def registro():
-    """Registrar nuevo usuario con su propia empresa (modelo SaaS)"""
+    """Registrar nuevo usuario - MULTI-TENANT con onboarding de 4 pasos"""
     
     if session.get('usuario_id'):
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
-        nombre              = (request.form.get('nombre') or '').strip()
-        nombre_empresa      = (request.form.get('nombre_empresa') or '').strip()
-        correo              = (request.form.get('correo') or '').strip()
-        confirmar_correo    = (request.form.get('confirmar_correo') or '').strip()
-        contrasena          = (request.form.get('contrasena') or '').strip()
-        confirmar_contrasena= (request.form.get('confirmar_contrasena') or '').strip()
+        nombre = request.form.get('nombre', '').strip()
+        correo = request.form.get('correo', '').strip()
+        confirmar_correo = request.form.get('confirmar_correo', '').strip()
+        contrasena = request.form.get('contrasena', '').strip()
+        confirmar_contrasena = request.form.get('confirmar_contrasena', '').strip()
         
         # Validaciones
-        if not (nombre and nombre_empresa and correo and confirmar_correo and contrasena and confirmar_contrasena):
+        if not (nombre and correo and confirmar_correo and contrasena and confirmar_contrasena):
             flash('Todos los campos son obligatorios.', 'danger')
             return redirect(url_for('registro'))
         
@@ -791,111 +1421,72 @@ def registro():
                     flash('Este correo ya fue registrado pero no confirmado. Revisa tu bandeja de entrada.', 'warning')
                 return redirect(url_for('login'))
             
-            # Verificar si el nombre de empresa ya existe
-            cursor.execute("SELECT id FROM empresas WHERE LOWER(nombre) = LOWER(%s)", (nombre_empresa,))
-            empresa_existente = cursor.fetchone()
-            
-            if empresa_existente:
-                flash('Ya existe una empresa con ese nombre. Por favor elige otro nombre.', 'warning')
-                return redirect(url_for('registro'))
-            
-            # Crear empresa
-            cursor.execute("""
-                INSERT INTO empresas (nombre, activo, fecha_registro)
-                VALUES (%s, 1, NOW())
-            """, (nombre_empresa,))
-            empresa_id = cursor.lastrowid
-            
-            print(f"✅ Empresa creada: {nombre_empresa} (ID: {empresa_id})")
-            
-            # Inicializar catálogos base de la empresa
-            inicializar_empresa_nueva(cursor, empresa_id, nombre_empresa)
-            
-            # Código de 6 dígitos
+            # Código de confirmación
             codigo = generar_codigo_confirmacion()
             
-            # Hash de contraseña
-            hashed = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt())
+            # Hash de contraseña con werkzeug (scrypt)
+            from werkzeug.security import generate_password_hash
+            hashed = generate_password_hash(contrasena)
             
-            # Crear usuario
+            # Crear usuario TEMPORAL (sin empresa ni contratante todavía)
             cursor.execute("""
                 INSERT INTO usuarios 
-                (nombre, correo, contrasena, rol, tipo_usuario, empresa_id, 
-                 email_confirmado, token_confirmacion, activo)
-                VALUES (%s, %s, %s, 'admin', 'admin_empresa', %s, 0, %s, 1)
-            """, (nombre, correo, hashed.decode('utf-8'), empresa_id, codigo))
+                (nombre, correo, contrasena, rol, email_confirmado, token_confirmacion, activo, rango)
+                VALUES (%s, %s, %s, 'admin', 0, %s, 1, 1)
+            """, (nombre, correo, hashed, codigo))
             
             conn.commit()
+            user_id = cursor.lastrowid
             
-            print(f"✅ Usuario creado: {nombre} ({correo}) - Código: {codigo}")
+            print(f"✅ Usuario temporal creado: {nombre} ({correo}) - ID: {user_id} - Código: {codigo}")
+            
+            # Guardar en sesión temporal
+            session['temp_user_id'] = user_id
+            session['email_pendiente'] = correo
+            session['nombre_temporal'] = nombre
             
             # Enviar email con código
             try:
                 msg = Message(
-                    subject='Código de Confirmación - ERP Sistema',
+                    subject='Código de Confirmación - ERP Multi-Tenant',
                     recipients=[correo]
                 )
                 
-                msg.body = f"""
-    Hola {nombre},
-
-    Tu código de confirmación es:
-
-    {codigo}
-
-    Este código es válido por 1 hora.
-
-    Si no solicitaste esta cuenta, ignora este correo.
-
-    Saludos,
-    Equipo ERP
-    """
                 msg.html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-            .content {{ background: #f9f9f9; padding: 30px; text-align: center; border-radius: 0 0 10px 10px; }}
-            .codigo {{ font-size: 48px; font-weight: bold; color: #667eea; letter-spacing: 10px; margin: 30px 0; }}
-            .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>✅ Confirma tu Cuenta</h1>
-            </div>
-            <div class="content">
-                <p>Hola <strong>{nombre}</strong>,</p>
-                <p>Tu empresa <strong>{nombre_empresa}</strong> ha sido creada exitosamente.</p>
-                <p>Ingresa este código para confirmar tu cuenta:</p>
-                <div class="codigo">{codigo}</div>
-                <p style="color: #e74c3c; font-weight: bold;">⏰ Este código expirará en 1 hora</p>
-            </div>
-            <div class="footer">
-                <p>© 2024 ERP Sistema. Todos los derechos reservados.</p>
-            </div>
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+        .content {{ background: #f9f9f9; padding: 30px; text-align: center; border-radius: 0 0 10px 10px; }}
+        .codigo {{ font-size: 48px; font-weight: bold; color: #667eea; letter-spacing: 10px; margin: 30px 0; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✅ Confirma tu Cuenta</h1>
         </div>
-    </body>
-    </html>
-    """
-                print("📨 INTENTO ENVIO a:", correo)
+        <div class="content">
+            <p>Hola <strong>{nombre}</strong>,</p>
+            <p>Ingresa este código para confirmar tu cuenta:</p>
+            <div class="codigo">{codigo}</div>
+            <p style="color: #e74c3c; font-weight: bold;">⏰ Este código expirará en 1 hora</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+                
                 mail.send(msg)
-                print("✅ ENVIO OK a:", correo)
-
-                # Guardar correo en sesión temporal para la página de confirmación
-                session['email_pendiente'] = correo
-                session['nombre_temporal'] = nombre
+                print("✅ Email enviado a:", correo)
                 
                 flash(f'Te hemos enviado un código de confirmación a {correo}', 'success')
                 return redirect(url_for('confirmar_codigo'))
             
             except Exception as e:
-                # OJO: aquí ya hiciste commit de empresa+usuario; 
-                # no tiene sentido rollback, pero lo dejamos si quieres forzar consistencia.
                 print(f"Error enviando email: {e}")
                 import traceback
                 traceback.print_exc()
@@ -1031,6 +1622,7 @@ def enviar_email_activacion(nombre, correo_destino, token):
         return False
 
 @app.route('/login', methods=['GET', 'POST'])
+# NO usar @require_login aquí
 def login():
     if session.get('usuario_id'):
         return redirect(url_for('dashboard'))
@@ -1048,9 +1640,10 @@ def login():
         
         try:
             cursor.execute("""
-                SELECT id, nombre, correo, contrasena, rol, empresa_id, email_confirmado
-                FROM usuarios 
-                WHERE correo = %s AND activo = 1
+                SELECT u.id, u.nombre, u.correo, u.puesto, u.contrasena, u.rol, u.empresa_id, u.email_confirmado,
+                       u.contratante_id, u.rango, u.empresas_acceso, u.puede_agregar_usuarios
+                FROM usuarios u
+                WHERE u.correo = %s AND u.activo = 1
             """, (correo,))
             usuario = cursor.fetchone()
             
@@ -1058,42 +1651,119 @@ def login():
                 flash('Correo o contraseña incorrectos.', 'danger')
                 return redirect(url_for('login'))
             
-            # Verificar contraseña (soporta scrypt y bcrypt)
             password_valida = False
             hash_guardado = usuario['contrasena']
             
             if hash_guardado.startswith('scrypt:') or hash_guardado.startswith('pbkdf2:'):
-                # Hash de werkzeug (usuarios nuevos)
                 from werkzeug.security import check_password_hash
                 password_valida = check_password_hash(hash_guardado, contrasena)
             elif hash_guardado.startswith('$2b$') or hash_guardado.startswith('$2a$'):
-                # Hash de bcrypt (usuarios viejos)
                 password_valida = bcrypt.checkpw(contrasena.encode('utf-8'), hash_guardado.encode('utf-8'))
             
             if not password_valida:
                 flash('Correo o contraseña incorrectos.', 'danger')
                 return redirect(url_for('login'))
             
-            # ===== VERIFICAR EMAIL CONFIRMADO =====
             if not usuario['email_confirmado']:
                 flash('⚠️ Debes confirmar tu correo antes de ingresar. Revisa tu bandeja de entrada.', 'warning')
                 return redirect(url_for('login'))
             
-            # Crear sesión
+            # ===== CARGAR EMPRESAS DESDE usuarios_empresas =====
+            cursor.execute("""
+                SELECT 
+                    ue.empresa_id, 
+                    ue.contratante_id, 
+                    ue.estado, 
+                    e.nombre as empresa_nombre,
+                    e.logo_url,
+                    COUNT(m.id) as total_productos
+                FROM usuarios_empresas ue
+                JOIN empresas e ON ue.empresa_id = e.id
+                LEFT JOIN mercancia m ON m.empresa_id = e.id
+                WHERE ue.usuario_id = %s AND ue.estado = 'activo'
+                GROUP BY ue.empresa_id, ue.contratante_id, ue.estado, e.nombre, e.logo_url
+                ORDER BY e.nombre
+            """, (usuario['id'],))
+            empresas_usuario = cursor.fetchall()
+            
+            # Fallback: Si no está en usuarios_empresas, usar empresa_id del usuario
+            if not empresas_usuario and usuario['empresa_id']:
+                cursor.execute("""
+                    SELECT id as empresa_id, nombre as empresa_nombre, contratante_id
+                    FROM empresas WHERE id = %s
+                """, (usuario['empresa_id'],))
+                empresa_fallback = cursor.fetchone()
+                if empresa_fallback:
+                    empresas_usuario = [empresa_fallback]
+            
+            if not empresas_usuario:
+                flash('No tienes empresas asignadas. Contacta al administrador.', 'danger')
+                return redirect(url_for('login'))
+            
+            # ✅ NUEVO: Si tiene múltiples empresas, ir al selector
+            if len(empresas_usuario) > 1:
+                session['usuario_id_temp'] = usuario['id']
+                session['usuario_nombre_temp'] = usuario['nombre']
+                session['usuario_correo_temp'] = usuario['correo']
+                session['usuario_rol_temp'] = usuario.get('rol', 'admin')
+                session['usuario_puesto_temp'] = usuario.get('puesto', '')
+                session['empresas_disponibles'] = empresas_usuario
+                
+                return redirect(url_for('seleccionar_empresa'))
+            
+            # Si solo tiene 1 empresa, continuar normal
+            empresa_activa = empresas_usuario[0]
+            
             session['usuario_id'] = usuario['id']
-            session['empresa_id'] = usuario['empresa_id']
+            session['empresa_id'] = empresa_activa['empresa_id']
+            session['contratante_id'] = empresa_activa['contratante_id']
             session['username'] = usuario['nombre']
             session['rol'] = usuario.get('rol', 'admin')
+            session['correo'] = usuario['correo']
+            session['puesto'] = usuario.get('puesto', '')
+            session['empresa_nombre'] = empresa_activa['empresa_nombre']
+            cursor.execute("SELECT logo_url FROM empresas WHERE id = %s", (empresa_activa['empresa_id'],))
+            empresa_info = cursor.fetchone()
+            session['empresa_logo'] = empresa_info['logo_url'] if empresa_info and empresa_info['logo_url'] else None
             
-            # Verificar si completó onboarding
+            # Cargar todas las empresas disponibles
+            session['empresas_acceso'] = [e['empresa_id'] for e in empresas_usuario]
+            
+            # Cargar nombre del contratante
+            if empresa_activa['contratante_id']:
+                cursor.execute("SELECT razon_social FROM contratantes WHERE id = %s", 
+                             (empresa_activa['contratante_id'],))
+                contratante = cursor.fetchone()
+                session['contratante_nombre'] = contratante['razon_social'] if contratante else ''
+            
+            # Cargar áreas
+            cursor.execute("""
+                SELECT a.codigo, a.modulo_relacionado, ua.puede_editar, ua.puede_eliminar, ua.puede_autorizar
+                FROM usuario_areas ua
+                JOIN areas_sistema a ON a.id = ua.area_id
+                WHERE ua.usuario_id = %s AND ua.empresa_id = %s AND ua.activo = 1
+            """, (usuario['id'], empresa_activa['empresa_id']))
+            areas_usuario = cursor.fetchall()
+            
+            modulos_permitidos = [area['modulo_relacionado'] for area in areas_usuario if area['modulo_relacionado']]
+            session['modulos_permitidos'] = modulos_permitidos
+            session['areas_usuario'] = {area['codigo']: {
+                'puede_editar': area['puede_editar'],
+                'puede_eliminar': area['puede_eliminar'],
+                'puede_autorizar': area['puede_autorizar']
+            } for area in areas_usuario}
+            
+            session['rango'] = usuario.get('rango', 4)
+            session['puede_agregar_usuarios'] = usuario.get('puede_agregar_usuarios', False)
+            
             cursor.execute("""
                 SELECT configuracion_completada 
                 FROM empresa_configuracion 
                 WHERE empresa_id = %s
-            """, (usuario['empresa_id'],))
+            """, (empresa_activa['empresa_id'],))
             config = cursor.fetchone()
             
-            if not config or not config['configuracion_completada']:
+            if not config or not config.get('configuracion_completada'):
                 return redirect(url_for('onboarding'))
             
             flash(f'¡Bienvenido {usuario["nombre"]}!', 'success')
@@ -1101,6 +1771,8 @@ def login():
             
         except Exception as e:
             print(f"Error en login: {e}")
+            import traceback
+            traceback.print_exc()
             flash('Error al iniciar sesión.', 'danger')
             return redirect(url_for('login'))
             
@@ -1110,133 +1782,310 @@ def login():
     
     return render_template('auth/login.html')
 
-@app.route('/onboarding', methods=['GET', 'POST'])
-@require_login
-def onboarding():
-    """Configuración inicial de la empresa"""
+
+@app.route('/seleccionar-empresa', methods=['GET', 'POST'])
+def seleccionar_empresa():
+    """Selector de empresa cuando el usuario tiene múltiples empresas"""
     
-    eid = g.empresa_id
-    uid = g.usuario_id
+    # Validar: debe venir del login O estar ya logueado
+    if not session.get('usuario_id_temp') and not session.get('usuario_id'):
+        flash('Debes iniciar sesión primero', 'warning')
+        return redirect(url_for('login'))
+    
+    # Caso 1: Ya está logueado, cargar empresas desde BD
+    if session.get('usuario_id'):
+        conn = conexion_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            cursor.execute("""
+                SELECT 
+                    ue.empresa_id, 
+                    ue.contratante_id, 
+                    e.nombre as empresa_nombre,
+                    e.logo_url,
+                    COUNT(m.id) as total_productos
+                FROM usuarios_empresas ue
+                JOIN empresas e ON ue.empresa_id = e.id
+                LEFT JOIN mercancia m ON m.empresa_id = e.id
+                WHERE ue.usuario_id = %s AND ue.estado = 'activo'
+                GROUP BY ue.empresa_id, ue.contratante_id, e.nombre, e.logo_url
+                ORDER BY e.nombre
+            """, (session['usuario_id'],))
+            empresas = cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+    # Caso 2: Viene del login, usar empresas_disponibles
+    else:
+        empresas = session.get('empresas_disponibles', [])
+    
+    # Validar que haya empresas
+    if not empresas:
+        flash('No tienes empresas asignadas. Contacta al administrador.', 'danger')
+        return redirect(url_for('logout'))
+    
+    if request.method == 'POST':
+        empresa_id = request.form.get('empresa_id')
+        
+        if not empresa_id:
+            flash('Selecciona una empresa.', 'warning')
+            return redirect(url_for('seleccionar_empresa'))
+        
+        try:
+            empresa_id = int(empresa_id)
+        except (ValueError, TypeError):
+            flash('Empresa no válida.', 'danger')
+            return redirect(url_for('seleccionar_empresa'))
+        
+        empresa_seleccionada = next((e for e in empresas if e['empresa_id'] == empresa_id), None)
+        
+        if not empresa_seleccionada:
+            flash('Empresa no válida.', 'danger')
+            return redirect(url_for('seleccionar_empresa'))
+        
+        conn = conexion_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            # Si viene del login, convertir datos temporales a permanentes
+            if session.get('usuario_id_temp'):
+                session['usuario_id'] = session.pop('usuario_id_temp')
+                session['username'] = session.pop('usuario_nombre_temp')
+                session['correo'] = session.pop('usuario_correo_temp')
+                session['rol'] = session.pop('usuario_rol_temp')
+                session['puesto'] = session.pop('usuario_puesto_temp', '')
+            
+            # Actualizar empresa seleccionada
+            session['empresa_id'] = empresa_seleccionada['empresa_id']
+            session['contratante_id'] = empresa_seleccionada['contratante_id']
+            session['empresa_nombre'] = empresa_seleccionada['empresa_nombre']
+            
+            # Cargar logo
+            cursor.execute("SELECT logo_url FROM empresas WHERE id = %s", (empresa_seleccionada['empresa_id'],))
+            empresa_info = cursor.fetchone()
+            session['empresa_logo'] = empresa_info['logo_url'] if empresa_info and empresa_info['logo_url'] else None
+
+            # Cargar nombre del contratante
+            if empresa_seleccionada['contratante_id']:
+                cursor.execute("SELECT razon_social FROM contratantes WHERE id = %s", 
+                             (empresa_seleccionada['contratante_id'],))
+                contratante = cursor.fetchone()
+                session['contratante_nombre'] = contratante['razon_social'] if contratante else ''
+            
+            # Cargar áreas del usuario en esta empresa
+            cursor.execute("""
+                SELECT a.codigo, a.modulo_relacionado, ua.puede_editar, ua.puede_eliminar, ua.puede_autorizar
+                FROM usuario_areas ua
+                JOIN areas_sistema a ON a.id = ua.area_id
+                WHERE ua.usuario_id = %s AND ua.empresa_id = %s AND ua.activo = 1
+            """, (session['usuario_id'], empresa_seleccionada['empresa_id']))
+            areas_usuario = cursor.fetchall()
+            
+            modulos_permitidos = [area['modulo_relacionado'] for area in areas_usuario if area['modulo_relacionado']]
+            session['modulos_permitidos'] = modulos_permitidos
+            session['areas_usuario'] = {area['codigo']: {
+                'puede_editar': area['puede_editar'],
+                'puede_eliminar': area['puede_eliminar'],
+                'puede_autorizar': area['puede_autorizar']
+            } for area in areas_usuario}
+            
+            # Guardar lista de empresas accesibles
+            session['empresas_acceso'] = [e['empresa_id'] for e in empresas]
+            session.pop('empresas_disponibles', None)
+            
+            flash(f'✅ Cambiaste a: {empresa_seleccionada["empresa_nombre"]}', 'success')
+            return redirect(url_for('dashboard'))
+            
+        finally:
+            cursor.close()
+            conn.close()
+    
+    return render_template('auth/seleccionar_empresa.html', empresas=empresas)
+
+@app.route('/onboarding/contratante', methods=['GET', 'POST'])
+def onboarding_contratante():
+    """PASO 1: Datos del contratante"""
+    if 'temp_user_id' not in session:
+        return redirect(url_for('registro'))
+    
+    if request.method == 'POST':
+        razon_social = request.form['razon_social']
+        rfc = request.form['rfc']
+        email_contacto = request.form['email_contacto']
+        telefono = request.form.get('telefono', '')
+        direccion = request.form.get('direccion', '')
+        ciudad = request.form.get('ciudad', '')
+        estado = request.form.get('estado', '')
+        cp = request.form.get('cp', '')
+        tipo_organizacion = request.form['tipo_organizacion']
+        tipo_industria = request.form['tipo_industria']
+        
+        conn = conexion_db()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute("""
+                INSERT INTO contratantes (razon_social, tipo_organizacion, tipo_industria, rfc, email_contacto, 
+                                         telefono, direccion, ciudad, estado, cp, activo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+            """, (razon_social, tipo_organizacion, tipo_industria, rfc, email_contacto, telefono, direccion, ciudad, estado, cp))
+            conn.commit()
+            contratante_id = cur.lastrowid
+            
+            session['temp_contratante_id'] = contratante_id
+            session['temp_tipo_organizacion'] = tipo_organizacion
+            session['temp_tipo_industria'] = tipo_industria
+            
+            return redirect(url_for('onboarding_empresa'))
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error al registrar contratante: {e}', 'danger')
+            return redirect(url_for('onboarding_contratante'))
+        finally:
+            cur.close()
+            conn.close()
+    
+    return render_template('onboarding/contratante.html')
+
+@app.route('/onboarding/empresa', methods=['GET', 'POST'])
+def onboarding_empresa():
+    """PASO 2: Datos de la empresa"""
+    if 'temp_contratante_id' not in session:
+        return redirect(url_for('onboarding_contratante'))
+    
+    if request.method == 'POST':
+        nombre = request.form['nombre']
+        rfc = request.form['rfc']
+        contratante_id = session['temp_contratante_id']
+        
+        conn = conexion_db()
+        cur = conn.cursor(dictionary=True)
+        try:
+            cur.execute("""
+                INSERT INTO empresas (contratante_id, nombre, rfc, puede_compartir_rfc, activo)
+                VALUES (%s, %s, %s, TRUE, TRUE)
+            """, (contratante_id, nombre, rfc))
+            conn.commit()
+            empresa_id = cur.lastrowid
+            
+            session['temp_empresa_id'] = empresa_id
+            return redirect(url_for('onboarding_modulos'))
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error al registrar empresa: {e}', 'danger')
+            return redirect(url_for('onboarding_empresa'))
+        finally:
+            cur.close()
+            conn.close()
+    
+    return render_template('onboarding/empresa.html')
+
+@app.route('/onboarding/modulos', methods=['GET', 'POST'])
+def onboarding_modulos():
+    """PASO 3: Selección de módulos"""
+    if 'temp_empresa_id' not in session:
+        return redirect(url_for('onboarding_empresa'))
     
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     
     try:
-        # Verificar si ya completó el onboarding
-        cur.execute("""
-            SELECT configuracion_completada 
-            FROM empresa_configuracion 
-            WHERE empresa_id = %s
-        """, (eid,))
-        config_existente = cur.fetchone()
-        
-        if config_existente and config_existente['configuracion_completada']:
-            flash('La configuración inicial ya fue completada.', 'info')
-            return redirect(url_for('dashboard'))
+        cur.execute("SELECT * FROM catalogo_modulos WHERE activo = TRUE ORDER BY nombre")
+        modulos_lista = cur.fetchall()
         
         if request.method == 'POST':
-            empleados_rango = request.form.get('empleados_rango')
-            tipo_comprobantes = request.form.get('tipo_comprobantes')
-            tipo_mercancia = request.form.get('tipo_mercancia')
-            frecuencia_inventario = request.form.get('frecuencia_inventario')
-            frecuencia_inventario_desc = request.form.get('frecuencia_inventario_desc', '').strip()
+            modulos_seleccionados = request.form.getlist('modulos[]')
+            empresa_id = session['temp_empresa_id']
             
-            if not all([empleados_rango, tipo_comprobantes, tipo_mercancia, frecuencia_inventario]):
-                flash('Por favor completa todas las preguntas.', 'danger')
-                return redirect(url_for('onboarding'))
-            
-            # Validar descripción si eligió "otro"
-            if frecuencia_inventario == 'otro' and not frecuencia_inventario_desc:
-                flash('Por favor describe la frecuencia de inventario deseada.', 'danger')
-                return redirect(url_for('onboarding'))
-            
-            # ===== LÓGICA DE CONFIGURACIÓN AUTOMÁTICA =====
-            requiere_manufactura = (tipo_mercancia == 'materia_prima')
-            requiere_wip = requiere_manufactura
-            requiere_recetas = requiere_manufactura
-            
-            # Determinar nivel de complejidad
-            if empleados_rango in ['1-5', '6-10']:
-                nivel_complejidad = 'basico'
-            elif empleados_rango in ['11-25', '26-99']:
-                nivel_complejidad = 'intermedio'
-            else:
-                nivel_complejidad = 'avanzado'
-            
-            # Módulos habilitados
-            modulo_wip = requiere_manufactura
-            modulo_produccion = requiere_manufactura
-            modulo_contabilidad = (tipo_comprobantes in ['solo_facturas', 'mixto'])
-            
-            # ===== GUARDAR CONFIGURACIÓN =====
-            cur.execute("""
-                INSERT INTO empresa_configuracion (
-                    empresa_id, empleados_rango, tipo_comprobantes, tipo_mercancia,
-                    requiere_manufactura, requiere_wip, requiere_recetas, nivel_complejidad,
-                    modulo_compras, modulo_ventas, modulo_inventario_mp, modulo_inventario_wip,
-                    modulo_inventario_pt, modulo_produccion, modulo_contabilidad,
-                    frecuencia_inventario, frecuencia_inventario_desc,
-                    configuracion_completada
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                )
-                ON DUPLICATE KEY UPDATE
-                    empleados_rango = VALUES(empleados_rango),
-                    tipo_comprobantes = VALUES(tipo_comprobantes),
-                    tipo_mercancia = VALUES(tipo_mercancia),
-                    requiere_manufactura = VALUES(requiere_manufactura),
-                    requiere_wip = VALUES(requiere_wip),
-                    requiere_recetas = VALUES(requiere_recetas),
-                    nivel_complejidad = VALUES(nivel_complejidad),
-                    modulo_inventario_wip = VALUES(modulo_inventario_wip),
-                    modulo_produccion = VALUES(modulo_produccion),
-                    modulo_contabilidad = VALUES(modulo_contabilidad),
-                    frecuencia_inventario = VALUES(frecuencia_inventario),
-                    frecuencia_inventario_desc = VALUES(frecuencia_inventario_desc),
-                    configuracion_completada = VALUES(configuracion_completada)
-            """, (
-                eid, empleados_rango, tipo_comprobantes, tipo_mercancia,
-                requiere_manufactura, requiere_wip, requiere_recetas, nivel_complejidad,
-                True, True, True, modulo_wip, True, modulo_produccion, modulo_contabilidad,
-                frecuencia_inventario, frecuencia_inventario_desc if frecuencia_inventario == 'otro' else None,
-                True
-            ))
-            
+            for modulo_id in modulos_seleccionados:
+                cur.execute("""
+                    INSERT INTO empresa_modulos (empresa_id, modulo_id, activo)
+                    VALUES (%s, %s, TRUE)
+                """, (empresa_id, modulo_id))
             conn.commit()
             
-            # Mensaje personalizado
-            mensaje_config = f"✅ Configuración completada. "
-            if requiere_manufactura:
-                mensaje_config += "Tu ERP incluirá módulos de Producción y WIP. "
-            else:
-                mensaje_config += "Tu ERP se configuró para compra-venta directa. "
-            
-            # Agregar info de frecuencia de inventario
-            frecuencias = {
-                'turno': 'por turno',
-                'diario': 'diaria',
-                'semanal': 'semanal',
-                'mensual': 'mensual',
-                'anual': 'anual',
-                'otro': frecuencia_inventario_desc
-            }
-            mensaje_config += f"Toma física de inventario: {frecuencias.get(frecuencia_inventario, frecuencia_inventario)}."
-            
-            flash(mensaje_config, 'success')
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('onboarding_plan'))
         
+        return render_template('onboarding/modulos.html', modulos=modulos_lista)
     except Exception as e:
-        conn.rollback()
-        print(f"Error en onboarding: {e}")
-        import traceback
-        traceback.print_exc()
-        flash(f'Error al guardar configuración: {e}', 'danger')
-        
+        flash(f'Error en módulos: {e}', 'danger')
+        return redirect(url_for('onboarding_empresa'))
     finally:
         cur.close()
         conn.close()
+
+@app.route('/onboarding/plan', methods=['GET', 'POST'])
+def onboarding_plan():
+    """PASO 4: Selección de plan y finalización"""
+    if 'temp_empresa_id' not in session:
+        return redirect(url_for('onboarding_modulos'))
     
-    return render_template('registro/onboarding.html')
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    
+    try:
+        empresa_id = session['temp_empresa_id']
+        contratante_id = session['temp_contratante_id']
+        
+        cur.execute("""
+            SELECT cm.nombre, cm.precio_mensual, cm.precio_anual
+            FROM empresa_modulos em
+            JOIN catalogo_modulos cm ON em.modulo_id = cm.id
+            WHERE em.empresa_id = %s AND em.activo = TRUE
+        """, (empresa_id,))
+        modulos_lista = cur.fetchall()
+        
+        subtotal_mensual = sum([float(m['precio_mensual']) for m in modulos_lista])
+        subtotal_anual = sum([float(m['precio_anual']) for m in modulos_lista])
+        
+        if request.method == 'POST':
+            tipo_plan = request.form['tipo_plan']
+            
+            if tipo_plan == 'MENSUAL':
+                total = subtotal_mensual
+                fecha_vencimiento = datetime.now() + timedelta(days=30)
+            else:
+                total = subtotal_anual
+                fecha_vencimiento = datetime.now() + timedelta(days=365)
+            
+            cur.execute("""
+                INSERT INTO suscripciones (contratante_id, tipo_plan, fecha_inicio, fecha_vencimiento, fecha_proximo_pago, subtotal, total, estado)
+                VALUES (%s, %s, CURDATE(), %s, %s, %s, %s, 'ACTIVA')
+            """, (contratante_id, tipo_plan, fecha_vencimiento, fecha_vencimiento, total, total))
+            conn.commit()
+            
+            user_id = session['temp_user_id']
+            cur.execute("""
+                UPDATE usuarios 
+                SET contratante_id = %s, empresa_id = %s, activo = TRUE, nombre = %s, empresas_acceso = %s
+                WHERE id = %s
+            """, (contratante_id, empresa_id, 'Director General', json.dumps([empresa_id]), user_id))
+            conn.commit()
+            
+            # Limpiar sesión temporal
+            session.pop('temp_user_id', None)
+            session.pop('temp_contratante_id', None)
+            session.pop('temp_empresa_id', None)
+            session.pop('temp_tipo_organizacion', None)
+            session.pop('temp_tipo_industria', None)
+            
+            flash('¡Registro completado exitosamente! Por favor inicia sesión.', 'success')
+            return redirect(url_for('login'))
+        
+        return render_template('onboarding/plan.html', modulos=modulos_lista, subtotal_mensual=subtotal_mensual, subtotal_anual=subtotal_anual)
+    except Exception as e:
+        flash(f'Error en plan: {e}', 'danger')
+        return redirect(url_for('onboarding_modulos'))
+    finally:
+        cur.close()
+        conn.close()
+
+# Ruta de compatibilidad - redirige al primer paso
+@app.route('/onboarding')
+@require_login
+def onboarding():
+    """Redirige al primer paso del onboarding multi-tenant"""
+    return redirect(url_for('onboarding_contratante'))
 
 def generar_codigo_confirmacion():
     """Genera un código de 6 dígitos para confirmación de email"""
@@ -1245,7 +2094,7 @@ def generar_codigo_confirmacion():
 
 @app.route('/confirmar-codigo', methods=['GET', 'POST'])
 def confirmar_codigo():
-    """Página para ingresar código de confirmación"""
+    """Página para ingresar código de confirmación - MULTI-TENANT"""
     
     email = session.get('email_pendiente')
     nombre = session.get('nombre_temporal')
@@ -1267,7 +2116,7 @@ def confirmar_codigo():
         try:
             # Buscar usuario con este código
             cursor.execute("""
-                SELECT id, nombre, empresa_id, token_confirmacion, email_confirmado, rol
+                SELECT id, nombre, token_confirmacion, email_confirmado
                 FROM usuarios 
                 WHERE correo = %s AND token_confirmacion = %s
             """, (email, codigo_ingresado))
@@ -1289,22 +2138,21 @@ def confirmar_codigo():
             """, (usuario['id'],))
             conn.commit()
             
-            print(f"✅ Email confirmado con código: {email}")
+            print(f"✅ Email confirmado: {email} - Usuario ID: {usuario['id']}")
             
-            # Auto-login
+            # NO hacer auto-login - guardar en sesión temporal para onboarding
             session.pop('email_pendiente', None)
             session.pop('nombre_temporal', None)
-            session['usuario_id'] = usuario['id']
-            session['empresa_id'] = usuario['empresa_id']
-            session['username'] = usuario['nombre']
-            session['rol'] = usuario.get('rol', 'admin')
+            session['temp_user_id'] = usuario['id']
             
-            flash(f'🎉 ¡Cuenta confirmada! Bienvenido {usuario["nombre"]}', 'success')
-            return redirect(url_for('onboarding'))
+            flash(f'🎉 ¡Email confirmado! Ahora completa el registro de tu empresa.', 'success')
+            return redirect(url_for('onboarding_contratante'))
             
         except Exception as e:
             conn.rollback()
             print(f"Error confirmando código: {e}")
+            import traceback
+            traceback.print_exc()
             flash('Error al confirmar el código.', 'danger')
             return redirect(url_for('confirmar_codigo'))
             
@@ -1314,32 +2162,30 @@ def confirmar_codigo():
     
     return render_template('registro/confirmar_codigo.html', email=email, nombre=nombre)
 
-def obtener_configuracion_empresa(empresa_id):
-    """Obtiene la configuración de la empresa"""
-    try:
-        conn = conexion_db()
-        cur = conn.cursor(dictionary=True)
-        cur.execute("""
-            SELECT * FROM empresa_configuracion WHERE empresa_id = %s
-        """, (empresa_id,))
-        config = cur.fetchone()
-        cur.close()
-        conn.close()
-        return config
-    except:
-        return None
-
 @app.route('/olvide-password', methods=['GET', 'POST'])
 def olvide_password():
     """Solicitar restablecimiento de contraseña"""
     
+    print("=" * 80)
+    print("🔵 ACCESO A /olvide-password")
+    print(f"Método: {request.method}")
+    print("=" * 80)
+
+
     if session.get('usuario_id'):
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
         correo = request.form.get('correo', '').strip()
         
+        print("=" * 80)
+        print("📨 POST RECIBIDO")
+        print(f"Correo del formulario: '{correo}'")
+        print(f"Datos completos del form: {request.form}")
+        print("=" * 80)
+
         if not correo:
+            print("⚠️ Correo vacío")
             flash('Por favor ingresa tu correo electrónico.', 'danger')
             return redirect(url_for('olvide_password'))
         
@@ -1347,13 +2193,17 @@ def olvide_password():
         cursor = conn.cursor(dictionary=True)
         
         try:
-            # Buscar usuario por correo
             cursor.execute("""
                 SELECT id, nombre, correo, email_confirmado 
                 FROM usuarios 
                 WHERE correo = %s AND activo = 1
             """, (correo,))
             usuario = cursor.fetchone()
+            
+            print("=" * 60)
+            print(f"📧 Correo buscado: {correo}")
+            print(f"👤 Usuario encontrado: {usuario}")
+            print("=" * 60)
             
             if not usuario:
                 flash('Si el correo existe, recibirás instrucciones para restablecer tu contraseña.', 'info')
@@ -1363,10 +2213,8 @@ def olvide_password():
                 flash('Debes confirmar tu correo antes de restablecer la contraseña.', 'warning')
                 return redirect(url_for('login'))
             
-            # Generar token de reseteo
             token = generar_token()
             
-            # Guardar token (usar nombres correctos)
             cursor.execute("""
                 UPDATE usuarios 
                 SET token_reset = %s, 
@@ -1375,87 +2223,96 @@ def olvide_password():
             """, (token, usuario['id']))
             conn.commit()
             
-            # Enviar email
-            try:
-                msg = Message(
-                    subject='Restablecer Contraseña - ERP Sistema',
-                    recipients=[correo]
-                )
-                
-                reset_url = url_for('reset_password', token=token, _external=True)
-                
-                msg.body = f"""
- Hola {usuario['nombre']},
+            msg = Message(
+                subject='Restablecer Contraseña - ERP Sistema',
+                recipients=[correo]
+            )
+            
+            reset_url = url_for('reset_password', token=token, _external=True)
+            
+            msg.body = f"""
+Hola {usuario['nombre']},
 
- Recibimos una solicitud para restablecer tu contraseña.
+Recibimos una solicitud para restablecer tu contraseña.
 
- Haz clic en el siguiente enlace para crear una nueva contraseña:
- {reset_url}
+Haz clic en el siguiente enlace para crear una nueva contraseña:
+{reset_url}
 
- Este enlace expirará en 1 hora.
+Este enlace expirará en 1 hora.
 
- Si no solicitaste este cambio, ignora este correo.
+Si no solicitaste este cambio, ignora este correo.
 
- Saludos,
- Equipo ERP
- """
-                
-                msg.html = f"""
- <!DOCTYPE html>
- <html>
- <head>
-     <style>
-         body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-         .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-         .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-         .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
-         .button {{ display: inline-block; padding: 15px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
-         .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
-     </style>
- </head>
- <body>
-     <div class="container">
-         <div class="header">
-             <h1>🔐 Restablecer Contraseña</h1>
-         </div>
-         <div class="content">
-             <p>Hola <strong>{usuario['nombre']}</strong>,</p>
-             <p>Recibimos una solicitud para restablecer tu contraseña.</p>
-             <p>Haz clic en el siguiente botón para crear una nueva contraseña:</p>
-             <p style="text-align: center;">
-                 <a href="{reset_url}" class="button">Restablecer Contraseña</a>
-             </p>
-             <p style="color: #666; font-size: 14px;">
-                 O copia y pega este enlace en tu navegador:<br>
-                 <a href="{reset_url}">{reset_url}</a>
-             </p>
-             <p style="color: #e74c3c; font-weight: bold;">⏰ Este enlace expirará en 1 hora.</p>
-             <p>Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
-         </div>
-         <div class="footer">
-             <p>© 2024 ERP Sistema. Todos los derechos reservados.</p>
-         </div>
-     </div>
- </body>
- </html>
- """
-                
-                mail.send(msg)
-                
-                flash('Te hemos enviado un correo con instrucciones para restablecer tu contraseña.', 'success')
-                return redirect(url_for('login'))
-                
-            except Exception as e:
-                conn.rollback()
-                print(f"Error enviando email de reseteo: {e}")
-                import traceback
-                traceback.print_exc()
-                flash('Error al enviar el correo. Por favor intenta más tarde.', 'danger')
-                return redirect(url_for('olvide_password'))
-                
+Saludos,
+Equipo ERP
+"""
+            
+            msg.html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+        .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+        .button {{ display: inline-block; padding: 15px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
+        .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Restablecer Contraseña</h1>
+        </div>
+        <div class="content">
+            <p>Hola <strong>{usuario['nombre']}</strong>,</p>
+            <p>Recibimos una solicitud para restablecer tu contraseña.</p>
+            <p>Haz clic en el siguiente botón para crear una nueva contraseña:</p>
+            <p style="text-align: center;">
+                <a href="{reset_url}" class="button">Restablecer Contraseña</a>
+            </p>
+            <p style="color: #666; font-size: 14px;">
+                O copia y pega este enlace en tu navegador:<br>
+                <a href="{reset_url}">{reset_url}</a>
+            </p>
+            <p style="color: #e74c3c; font-weight: bold;">⏰ Este enlace expirará en 1 hora.</p>
+            <p>Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 ERP Sistema. Todos los derechos reservados.</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+            
+            print("=" * 60)
+            print("🔄 INTENTANDO ENVIAR CORREO...")
+            print(f"MAIL_SERVER: {app.config['MAIL_SERVER']}")
+            print(f"MAIL_PORT: {app.config['MAIL_PORT']}")
+            print(f"MAIL_USERNAME: {app.config['MAIL_USERNAME']}")
+            print(f"MAIL_PASSWORD configurado: {'Sí' if app.config['MAIL_PASSWORD'] else 'No'}")
+            print(f"Destinatario: {correo}")
+            print("=" * 60)
+            
+            mail.send(msg)
+            
+            print("=" * 60)
+            print("✅ CORREO ENVIADO EXITOSAMENTE")
+            print(f"Token: {token}")
+            print(f"URL: {reset_url}")
+            print("=" * 60)
+            
+            flash('Te hemos enviado un correo con instrucciones para restablecer tu contraseña.', 'success')
+            return redirect(url_for('login'))
+            
         except Exception as e:
             conn.rollback()
-            print(f"Error en olvide_password: {e}")
+            print("=" * 60)
+            print("❌ ERROR GENERAL")
+            print(f"Tipo: {type(e).__name__}")
+            print(f"Mensaje: {str(e)}")
+            print("=" * 60)
             import traceback
             traceback.print_exc()
             flash('Error al procesar la solicitud.', 'danger')
@@ -1546,163 +2403,289 @@ def reset_password(token):
 @app.route('/admin/usuarios/agregar', methods=['POST'])
 @require_login
 def admin_agregar_usuario():
-    """Admin agrega un nuevo usuario con áreas asignadas y envía invitación."""
+    """Admin agrega un nuevo usuario - soporta multi-empresa"""
+    
+    print("=" * 50)
+    print("🔵 INICIO admin_agregar_usuario")
+    print(f"Método: {request.method}")
+    print(f"Form data: {request.form}")
+    print("=" * 50)
+
     eid = g.empresa_id
     uid = g.usuario_id
     
     correo = (request.form.get('correo') or '').strip().lower()
     nombre = (request.form.get('nombre') or '').strip()
     puesto = (request.form.get('puesto') or '').strip()
-    areas_seleccionadas = request.form.getlist('areas')  # Lista de IDs de áreas
+    areas_seleccionadas = request.form.getlist('areas')
     
     if not correo or not nombre:
         flash('Correo y nombre son requeridos', 'warning')
-        return redirect(url_for('admin_gestion_usuarios'))  # ✅ CAMBIO 1
+        return redirect(url_for('admin_gestion_usuarios'))
     
     if not areas_seleccionadas:
         flash('Debes asignar al menos un área al usuario', 'warning')
-        return redirect(url_for('admin_gestion_usuarios'))  # ✅ CAMBIO 2
+        return redirect(url_for('admin_gestion_usuarios'))
     
     db = conexion_db()
     cursor = db.cursor(dictionary=True)
     
     try:
-        # Verificar correo no exista
-        cursor.execute("SELECT id FROM usuarios WHERE correo = %s", (correo,))
-        if cursor.fetchone():
-            flash('Este correo ya está registrado', 'danger')
-            return redirect(url_for('admin_gestion_usuarios'))  # ✅ CAMBIO 3
+        # ✅ VERIFICAR SI USUARIO YA EXISTE
+        cursor.execute("SELECT id, nombre, estado_registro FROM usuarios WHERE correo = %s", (correo,))
+        usuario_existente = cursor.fetchone()
         
-        # Token invitación + expiración
-        token = secrets.token_urlsafe(32)
-        expira = datetime.now() + timedelta(hours=24)
-        
-        # Crear usuario invitado (sin contraseña aún)
-        cursor.execute("""
-            INSERT INTO usuarios
-            (nombre, correo, puesto, empresa_id,
-             estado_registro, rol,
-             contrasena, activo,
-             email_confirmado,
-             token_invitacion, fecha_invitacion, fecha_token_expira,
-             invitado_por)
-            VALUES
-            (%s, %s, %s, %s,
-             'invitado', 'editor',
-             '', 1,
-             0,
-             %s, NOW(), %s,
-             %s)
-        """, (nombre, correo, puesto, eid, token, expira, uid))
-        
-        usuario_id = cursor.lastrowid
-        
-        # Asignar áreas seleccionadas
-        for area_id in areas_seleccionadas:
+        if usuario_existente:
+            # ✅ USUARIO YA EXISTE - Agregarlo a esta empresa
+            usuario_id = usuario_existente['id']
+            
+            # Verificar si ya está en esta empresa
             cursor.execute("""
-                INSERT INTO usuario_areas (usuario_id, area_id, empresa_id, rol_area, activo)
-                VALUES (%s, %s, %s, 'operador', 1)
-            """, (usuario_id, int(area_id), eid))
-        
-        db.commit()
-        
-        # Link para crear contraseña
-        link = url_for('completar_registro', token=token, _external=True)
-        
-        # Obtener nombres de áreas asignadas para el correo
-        cursor.execute("""
-            SELECT GROUP_CONCAT(a.nombre SEPARATOR ', ') as areas
-            FROM usuario_areas ua
-            JOIN areas_produccion a ON a.id = ua.area_id  # ✅ CAMBIO 4: areas_sistema → areas_produccion
-            WHERE ua.usuario_id = %s
-        """, (usuario_id,))
-        areas_nombres = cursor.fetchone()['areas'] or 'Sin áreas'
-        
-        msg = Message(
-            subject='Invitación a ERP - Crea tu contraseña',
-            recipients=[correo]
-        )
-        
-        msg.html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
-                .content {{ background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }}
-                .btn {{ display: inline-block; background: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
-                .areas {{ background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0; }}
-                .footer {{ text-align: center; color: #666; font-size: 12px; margin-top: 20px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>¡Bienvenido al ERP!</h1>
-                </div>
-                <div class="content">
-                    <p>Hola <strong>{nombre}</strong>,</p>
-                    <p>Has sido invitado a formar parte del equipo. Para comenzar, crea tu contraseña haciendo clic en el siguiente botón:</p>
-                    
-                    <div class="areas">
-                        <strong>📋 Áreas asignadas:</strong><br>
-                        {areas_nombres}
+                SELECT id FROM usuarios_empresas 
+                WHERE usuario_id = %s AND empresa_id = %s
+            """, (usuario_id, eid))
+            
+            if cursor.fetchone():
+                flash(f'❌ {nombre} ya está registrado en tu empresa.', 'warning')
+                return redirect(url_for('admin_gestion_usuarios'))
+            
+            # Token de confirmación
+            token = secrets.token_urlsafe(32)
+            expira = datetime.now() + timedelta(hours=48)
+            
+            # Agregar a usuarios_empresas
+            cursor.execute("""
+                INSERT INTO usuarios_empresas
+                (usuario_id, empresa_id, contratante_id, estado, invitado_por, 
+                 token_confirmacion, fecha_token_expira)
+                VALUES (%s, %s, %s, 'pendiente', %s, %s, %s)
+            """, (usuario_id, eid, g.contratante_id, uid, token, expira))
+            
+            # Asignar áreas
+            for area_id in areas_seleccionadas:
+                cursor.execute("""
+                    INSERT INTO usuario_areas (usuario_id, area_id, empresa_id, rol_area, activo)
+                    VALUES (%s, %s, %s, 'operador', 1)
+                """, (usuario_id, int(area_id), eid))
+            
+            db.commit()
+            
+            # Link de confirmación
+            link = url_for('confirmar_empresa', token=token, _external=True)
+            
+            # Obtener nombres de áreas
+            cursor.execute("""
+                SELECT GROUP_CONCAT(a.nombre SEPARATOR ', ') as areas
+                FROM usuario_areas ua
+                JOIN areas_sistema a ON a.id = ua.area_id
+                WHERE ua.usuario_id = %s AND ua.empresa_id = %s
+            """, (usuario_id, eid))
+            areas_nombres = cursor.fetchone()['areas'] or 'Sin áreas'
+            
+            # Obtener nombre de la empresa
+            cursor.execute("SELECT nombre FROM empresas WHERE id = %s", (eid,))
+            empresa_nombre = cursor.fetchone()['nombre']
+            
+            # Enviar correo
+            msg = Message(
+                subject=f'Invitación a {empresa_nombre} - ERP',
+                recipients=[correo]
+            )
+            
+            msg.html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                    .content {{ background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }}
+                    .btn {{ display: inline-block; background: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
+                    .info-box {{ background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>¡Nueva Invitación!</h1>
                     </div>
-                    
-                    <center>
-                        <a href="{link}" class="btn">Crear mi Contraseña</a>
-                    </center>
-                    
-                    <p><small>Este enlace expira en 24 horas.</small></p>
-                    <p>Si no puedes hacer clic en el botón, copia y pega este enlace en tu navegador:</p>
-                    <p style="word-break: break-all; font-size: 12px; color: #666;">{link}</p>
+                    <div class="content">
+                        <p>Hola <strong>{usuario_existente['nombre']}</strong>,</p>
+                        <p>Has sido invitado a formar parte de <strong>{empresa_nombre}</strong>.</p>
+                        
+                        <div class="info-box">
+                            <strong>📋 Áreas asignadas:</strong><br>
+                            {areas_nombres}
+                        </div>
+                        
+                        <p><strong>✅ Ya tienes cuenta en nuestro sistema.</strong> Puedes acceder con tu contraseña actual.</p>
+                        
+                        <p>Confirma tu participación en esta empresa:</p>
+                        
+                        <center>
+                            <a href="{link}" class="btn">Confirmar Invitación</a>
+                        </center>
+                        
+                        <p><small>Este enlace expira en 48 horas.</small></p>
+                        <p style="word-break: break-all; font-size: 12px; color: #666;">{link}</p>
+                    </div>
                 </div>
-                <div class="footer">
-                    <p>Este es un correo automático, por favor no respondas.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+            </body>
+            </html>
+            """
+            
+            mail.send(msg)
+            flash(f'✅ {nombre} agregado a tu empresa. Correo de confirmación enviado.', 'success')
         
-        mail.send(msg)
-        flash(f'✅ Usuario {nombre} agregado. Invitación enviada a {correo}', 'success')
+        else:
+            # ✅ USUARIO NUEVO - Flujo completo
+            token = secrets.token_urlsafe(32)
+            expira = datetime.now() + timedelta(hours=48)
+            
+            # Crear usuario
+            cursor.execute("""
+                INSERT INTO usuarios
+                (nombre, correo, puesto, empresa_id,
+                 estado_registro, rol, contrasena, activo,
+                 email_confirmado, token_invitacion, 
+                 fecha_invitacion, fecha_token_expira, invitado_por)
+                VALUES (%s, %s, %s, %s, 'invitado', 'editor', '', 1, 0, %s, NOW(), %s, %s)
+            """, (nombre, correo, puesto, eid, token, expira, uid))
+            
+            usuario_id = cursor.lastrowid
+            
+            # Crear entrada en usuarios_empresas
+            cursor.execute("""
+                INSERT INTO usuarios_empresas
+                (usuario_id, empresa_id, contratante_id, estado, invitado_por, 
+                 token_confirmacion, fecha_token_expira)
+                VALUES (%s, %s, %s, 'pendiente', %s, %s, %s)
+            """, (usuario_id, eid, g.contratante_id, uid, token, expira))
+            
+            # Asignar áreas
+            for area_id in areas_seleccionadas:
+                cursor.execute("""
+                    INSERT INTO usuario_areas (usuario_id, area_id, empresa_id, rol_area, activo)
+                    VALUES (%s, %s, %s, 'operador', 1)
+                """, (usuario_id, int(area_id), eid))
+            
+            db.commit()
+            
+            # Link para crear contraseña
+            link = url_for('completar_registro', token=token, _external=True)
+            
+            # Obtener áreas
+            cursor.execute("""
+                SELECT GROUP_CONCAT(a.nombre SEPARATOR ', ') as areas
+                FROM usuario_areas ua
+                JOIN areas_sistema a ON a.id = ua.area_id
+                WHERE ua.usuario_id = %s AND ua.empresa_id = %s
+            """, (usuario_id, eid))
+            areas_nombres = cursor.fetchone()['areas'] or 'Sin áreas'
+            
+            # Enviar correo
+            msg = Message(
+                subject='Invitación a ERP - Crea tu contraseña',
+                recipients=[correo]
+            )
+            
+            msg.html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                    .content {{ background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }}
+                    .btn {{ display: inline-block; background: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
+                    .areas {{ background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>¡Bienvenido al ERP!</h1>
+                    </div>
+                    <div class="content">
+                        <p>Hola <strong>{nombre}</strong>,</p>
+                        <p>Has sido invitado a formar parte del equipo. Para comenzar, crea tu contraseña:</p>
+                        
+                        <div class="areas">
+                            <strong>📋 Áreas asignadas:</strong><br>
+                            {areas_nombres}
+                        </div>
+                        
+                        <center>
+                            <a href="{link}" class="btn">Crear mi Contraseña</a>
+                        </center>
+                        
+                        <p><small>Este enlace expira en 48 horas.</small></p>
+                        <p style="word-break: break-all; font-size: 12px; color: #666;">{link}</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            mail.send(msg)
+            flash(f'✅ Usuario {nombre} agregado. Invitación enviada a {correo}', 'success')
         
     except Exception as e:
         db.rollback()
-        print(f"Error agregando usuario: {e}")
-        flash(f'Error al agregar usuario: {str(e)}', 'danger')
+        print(f"❌ Error agregando usuario: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'❌ Error: {str(e)}', 'danger')
     finally:
         cursor.close()
         db.close()
     
-    return redirect(url_for('admin_gestion_usuarios'))  # ✅ CAMBIO 5
+    return redirect(url_for('admin_gestion_usuarios'))
 
 @app.route('/admin/usuarios/<int:usuario_id>/editar', methods=['POST'])
 @require_login
 def admin_editar_usuario(usuario_id):
     """Editar datos básicos de usuario"""
-    eid = g.empresa_id
-    
+    print(f"DEBUG editar usuario: form data = {dict(request.form)}")
+    print(f"DEBUG empresa_ids = {request.form.getlist('empresa_ids[]')}")
     nombre = request.form.get('nombre', '').strip()
     puesto = request.form.get('puesto', '').strip()
-    
+    empresa_ids = request.form.getlist('empresa_ids[]')
+
     db = conexion_db()
     cursor = db.cursor()
-    
-    cursor.execute("""
-        UPDATE usuarios SET nombre = %s, puesto = %s
-        WHERE id = %s AND empresa_id = %s
-    """, (nombre, puesto, usuario_id, eid))
-    
+
+    empresa_principal = int(empresa_ids[0]) if empresa_ids else None
+
+    if empresa_principal:
+        cursor.execute("""
+            UPDATE usuarios SET nombre = %s, puesto = %s, empresa_id = %s
+            WHERE id = %s
+        """, (nombre, puesto, empresa_principal, usuario_id))
+    else:
+        cursor.execute("""
+            UPDATE usuarios SET nombre = %s, puesto = %s
+            WHERE id = %s
+        """, (nombre, puesto, usuario_id))
+
+    cursor.execute("DELETE FROM usuarios_empresas WHERE usuario_id = %s", (usuario_id,))
+
+    for eid in empresa_ids:
+        if eid and str(eid).isdigit():
+            cursor.execute("""
+                INSERT INTO usuarios_empresas (usuario_id, empresa_id, estado)
+                VALUES (%s, %s, 'activo')
+                ON DUPLICATE KEY UPDATE estado = 'activo'
+            """, (usuario_id, int(eid)))
+
     db.commit()
     cursor.close()
     db.close()
-    
-    flash('Usuario actualizado', 'success')
-    return redirect(url_for('admin_registro_usuarios'))
+
+    flash('✅ Usuario actualizado', 'success')
+    return redirect(url_for('admin_gestion_usuarios'))
 
 @app.route('/admin/usuarios/<int:usuario_id>/eliminar', methods=['POST'])
 @require_login
@@ -1714,7 +2697,7 @@ def admin_eliminar_usuario(usuario_id):
     # No permitir eliminarse a sí mismo
     if usuario_id == uid:
         flash('No puedes eliminarte a ti mismo', 'danger')
-        return redirect(url_for('admin_registro_usuarios'))
+        return redirect(url_for('admin_gestion_usuarios'))
     
     db = conexion_db()
     cursor = db.cursor(dictionary=True)
@@ -1729,7 +2712,7 @@ def admin_eliminar_usuario(usuario_id):
         flash('Usuario no encontrado', 'danger')
         cursor.close()
         db.close()
-        return redirect(url_for('admin_registro_usuarios'))
+        return redirect(url_for('admin_gestion_usuarios'))
     
     if usuario['estado_registro'] in ('pendiente', 'invitado'):
         # Eliminar completamente (nunca usó el sistema)
@@ -1752,7 +2735,7 @@ def admin_eliminar_usuario(usuario_id):
     cursor.close()
     db.close()
     
-    return redirect(url_for('admin_registro_usuarios'))
+    return redirect(url_for('admin_gestion_usuarios'))
 
 @app.route('/aceptar-invitacion/<token>', methods=['GET', 'POST'])
 def aceptar_invitacion(token):
@@ -1810,7 +2793,7 @@ def aceptar_invitacion(token):
 
 # =============================================
 # GESTIÓN DE USUARIOS (UNIFICADA)
-# Reemplaza: admin_registro_usuarios y admin_usuario_areas
+# Reemplaza: admin_gestion_usuarios y admin_usuario_areas
 # =============================================
 
 @app.route('/admin/usuarios')
@@ -1818,52 +2801,65 @@ def aceptar_invitacion(token):
 def admin_gestion_usuarios():
     """Gestión unificada de usuarios y áreas"""
     eid = g.empresa_id
-    
+    es_admin = session.get('rol') == 'admin'
+
     db = conexion_db()
     cursor = db.cursor(dictionary=True)
-    
-    # Obtener usuarios con sus áreas
-    cursor.execute("""
-        SELECT 
-            u.id,
-            u.nombre,
-            u.correo,
-            u.puesto,
-            u.estado_registro,
-            u.fecha_registro,
-            GROUP_CONCAT(DISTINCT a.nombre ORDER BY a.nombre SEPARATOR ', ') as areas_nombres,
-            COUNT(DISTINCT ua.area_id) as num_areas
-        FROM usuarios u
-        LEFT JOIN usuario_areas ua ON ua.usuario_id = u.id AND ua.activo = 1
-        LEFT JOIN areas_sistema a ON a.id = ua.area_id AND a.activo = 1
-        WHERE u.empresa_id = %s
-        GROUP BY u.id
-        ORDER BY 
-            CASE u.estado_registro 
-                WHEN 'pendiente' THEN 1 
-                WHEN 'invitado' THEN 2 
-                WHEN 'activo' THEN 3 
-                ELSE 4 
-            END,
-            u.nombre
-    """, (eid,))
+
+    if es_admin:
+        cursor.execute("""
+            SELECT 
+                u.id, u.nombre, u.correo, u.puesto, u.rol,
+                e.nombre as empresa_nombre,
+                COALESCE(ue.estado, u.estado_registro) as estado_registro,
+                COALESCE(ue.fecha_invitacion, u.fecha_registro) as fecha_registro,
+                GROUP_CONCAT(DISTINCT a.nombre ORDER BY a.nombre SEPARATOR ', ') as areas_nombres,
+                COUNT(DISTINCT ua.area_id) as num_areas
+            FROM usuarios u
+            LEFT JOIN empresas e ON e.id = u.empresa_id
+            LEFT JOIN usuarios_empresas ue ON ue.usuario_id = u.id AND ue.empresa_id = u.empresa_id
+            LEFT JOIN usuario_areas ua ON ua.usuario_id = u.id AND ua.activo = 1
+            LEFT JOIN areas_sistema a ON a.id = ua.area_id AND a.activo = 1
+            WHERE u.activo = 1
+            GROUP BY u.id, u.nombre, u.correo, u.puesto, u.rol, e.nombre,
+                     ue.estado, u.estado_registro, ue.fecha_invitacion, u.fecha_registro
+            ORDER BY e.nombre, u.nombre
+        """)
+    else:
+        cursor.execute("""
+            SELECT 
+                u.id, u.nombre, u.correo, u.puesto, u.rol,
+                e.nombre as empresa_nombre,
+                COALESCE(ue.estado, u.estado_registro) as estado_registro,
+                COALESCE(ue.fecha_invitacion, u.fecha_registro) as fecha_registro,
+                GROUP_CONCAT(DISTINCT a.nombre ORDER BY a.nombre SEPARATOR ', ') as areas_nombres,
+                COUNT(DISTINCT ua.area_id) as num_areas
+            FROM usuarios u
+            LEFT JOIN empresas e ON e.id = u.empresa_id
+            LEFT JOIN usuarios_empresas ue ON ue.usuario_id = u.id AND ue.empresa_id = %s
+            LEFT JOIN usuario_areas ua ON ua.usuario_id = u.id AND ua.empresa_id = %s AND ua.activo = 1
+            LEFT JOIN areas_sistema a ON a.id = ua.area_id AND a.activo = 1
+            WHERE u.empresa_id = %s AND u.activo = 1
+            GROUP BY u.id, u.nombre, u.correo, u.puesto, u.rol, e.nombre,
+                     ue.estado, u.estado_registro, ue.fecha_invitacion, u.fecha_registro
+            ORDER BY u.nombre
+        """, (eid, eid, eid))
+
     usuarios = cursor.fetchall()
-    
-    # Conteos por estado
-    cursor.execute("""
-        SELECT 
-            COALESCE(estado_registro, 'activo') as estado,
-            COUNT(*) as total
-        FROM usuarios 
-        WHERE empresa_id = %s
-        GROUP BY estado_registro
-    """, (eid,))
+
+    if es_admin:
+        cursor.execute("""
+            SELECT COALESCE(estado_registro, 'activo') as estado, COUNT(*) as total
+            FROM usuarios WHERE activo = 1 GROUP BY estado_registro
+        """)
+    else:
+        cursor.execute("""
+            SELECT COALESCE(estado_registro, 'activo') as estado, COUNT(*) as total
+            FROM usuarios WHERE empresa_id = %s GROUP BY estado_registro
+        """, (eid,))
+
     conteos_raw = cursor.fetchall()
-    conteo = {
-        'pendientes': 0,
-        'invitados': 0,
-        'activos': 0
-    }
+    conteo = {'pendientes': 0, 'invitados': 0, 'activos': 0}
     for c in conteos_raw:
         if c['estado'] == 'pendiente':
             conteo['pendientes'] = c['total']
@@ -1871,22 +2867,35 @@ def admin_gestion_usuarios():
             conteo['invitados'] = c['total']
         elif c['estado'] in ['activo', None]:
             conteo['activos'] += c['total']
-    
-    # Total de áreas
+
     cursor.execute("""
-        SELECT COUNT(*) as total FROM areas_sistema 
+        SELECT id, nombre FROM areas_sistema
+        WHERE empresa_id = %s AND activo = 1 ORDER BY nombre
+    """, (eid,))
+    areas_disponibles = cursor.fetchall()
+
+    cursor.execute("""
+        SELECT COUNT(*) as total FROM areas_sistema
         WHERE empresa_id = %s AND activo = 1
     """, (eid,))
     total_areas = cursor.fetchone()['total']
-    
+
+    cursor.execute("""
+        SELECT id, nombre FROM empresas WHERE activo = 1 ORDER BY nombre
+    """)
+    empresas_lista = cursor.fetchall()
+
     cursor.close()
     db.close()
-    
-    return render_template('admin/gestion_usuarios.html', 
-                          usuarios=usuarios, 
-                          conteo=conteo,
-                          total_areas=total_areas)
 
+    return render_template('admin/gestion_usuarios.html',
+        usuarios=usuarios,
+        conteo=conteo,
+        total_areas=total_areas,
+        areas_disponibles=areas_disponibles,
+        empresas_lista=empresas_lista,
+        es_admin=es_admin
+    )
 
 # =============================================
 # RUTAS AUXILIARES (mantener las existentes)
@@ -2486,7 +3495,7 @@ def admin_reenviar_invitacion(usuario_id):
     
     # Si es GET, redirigir (alguien accedió directo a la URL)
     if request.method == 'GET':
-        return redirect(url_for('admin_registro_usuarios'))
+        return redirect(url_for('admin_gestion_usuarios'))
     
     eid = g.empresa_id
     uid = g.usuario_id
@@ -2504,7 +3513,7 @@ def admin_reenviar_invitacion(usuario_id):
         flash('Usuario no encontrado o ya está activo', 'danger')
         cursor.close()
         db.close()
-        return redirect(url_for('admin_registro_usuarios'))
+        return redirect(url_for('admin_gestion_usuarios'))
     
     # Generar nuevo token
     token = generar_token_invitacion()
@@ -2529,7 +3538,7 @@ def admin_reenviar_invitacion(usuario_id):
     cursor.close()
     db.close()
     
-    return redirect(url_for('admin_registro_usuarios'))
+    return redirect(url_for('admin_gestion_usuarios'))
 
 # =============================================
 # SISTEMA DE INVITACIONES
@@ -2653,7 +3662,7 @@ def admin_invitacion_nueva():
         SELECT id, codigo, nombre, icono, color 
         FROM areas_sistema 
         WHERE empresa_id = %s AND activa = 1
-        ORDER BY orden
+        ORDER BY nombre
     """, (eid,))
     areas = cursor.fetchall()
     
@@ -2952,7 +3961,7 @@ def admin_areas():
         LEFT JOIN usuarios u ON u.id = ua.usuario_id
         WHERE a.empresa_id = %s
         GROUP BY a.id
-        ORDER BY a.orden
+        ORDER BY a.nombre
     """, (eid,))
     areas = cursor.fetchall()
     
@@ -2989,41 +3998,70 @@ def admin_area_toggle(area_id):
 def admin_usuario_areas():
     """Vista de asignaciones por usuario"""
     eid = g.empresa_id
-    
+    es_admin = session.get('rol') == 'admin'
+
     db = conexion_db()
     cursor = db.cursor(dictionary=True)
-    
-    # Obtener usuarios con sus áreas asignadas
-    cursor.execute("""
-        SELECT 
-            u.id as usuario_id,
-            u.nombre as usuario,
-            u.puesto,
-            GROUP_CONCAT(
-                CONCAT(a.nombre, ' (', ua.rol_area, ')')
-                ORDER BY a.orden
-                SEPARATOR ', '
-            ) as areas_asignadas,
-            COUNT(ua.id) as num_areas
-        FROM usuarios u
-        LEFT JOIN usuario_areas ua ON ua.usuario_id = u.id AND ua.activo = 1
-        LEFT JOIN areas_sistema a ON a.id = ua.area_id AND a.activo = 1
-        WHERE u.empresa_id = %s AND u.activo = 1
-        GROUP BY u.id
-        ORDER BY u.nombre
-    """, (eid,))
+
+    if es_admin:
+        cursor.execute("""
+            SELECT 
+                u.id as usuario_id,
+                u.nombre as usuario,
+                u.puesto,
+                u.empresa_id,
+                e.nombre as empresa_nombre,
+                GROUP_CONCAT(
+                    CONCAT(a.nombre, ' (', ua.rol_area, ')')
+                    ORDER BY a.nombre
+                    SEPARATOR ', '
+                ) as areas_asignadas,
+                COUNT(ua.id) as num_areas
+            FROM usuarios u
+            LEFT JOIN empresas e ON e.id = u.empresa_id
+            LEFT JOIN usuario_areas ua ON ua.usuario_id = u.id AND ua.activo = 1
+            LEFT JOIN areas_sistema a ON a.id = ua.area_id AND a.activo = 1
+            WHERE u.activo = 1
+            GROUP BY u.id, u.nombre, u.puesto, u.empresa_id, e.nombre
+            ORDER BY e.nombre, u.nombre
+        """)
+    else:
+        cursor.execute("""
+            SELECT 
+                u.id as usuario_id,
+                u.nombre as usuario,
+                u.puesto,
+                u.empresa_id,
+                e.nombre as empresa_nombre,
+                GROUP_CONCAT(
+                    CONCAT(a.nombre, ' (', ua.rol_area, ')')
+                    ORDER BY a.nombre
+                    SEPARATOR ', '
+                ) as areas_asignadas,
+                COUNT(ua.id) as num_areas
+            FROM usuarios u
+            LEFT JOIN empresas e ON e.id = u.empresa_id
+            LEFT JOIN usuario_areas ua ON ua.usuario_id = u.id AND ua.activo = 1
+            LEFT JOIN areas_sistema a ON a.id = ua.area_id AND a.activo = 1
+            WHERE u.empresa_id = %s AND u.activo = 1
+            GROUP BY u.id, u.nombre, u.puesto, u.empresa_id, e.nombre
+            ORDER BY u.nombre
+        """, (eid,))
+
     usuarios = cursor.fetchall()
-    
-    # Contar áreas totales
+
     cursor.execute("""
         SELECT COUNT(*) as total FROM areas_sistema WHERE empresa_id = %s AND activo = 1
     """, (eid,))
     total_areas = cursor.fetchone()['total']
-    
+
     cursor.close()
     db.close()
-    
-    return render_template('admin/usuario_areas.html', usuarios=usuarios, total_areas=total_areas)
+
+    return render_template('admin/usuario_areas.html',
+        usuarios=usuarios,
+        total_areas=total_areas
+    )
 
 @app.route('/admin/usuarios/nuevo')
 @require_login
@@ -3039,7 +4077,7 @@ def admin_usuario_nuevo():
         SELECT id, nombre, codigo, icono, color, descripcion
         FROM areas_sistema
         WHERE activo = 1 AND empresa_id = %s
-        ORDER BY orden, nombre
+        ORDER BY nombre, nombre
     """, (eid,))
     areas = cursor.fetchall()
     
@@ -3072,18 +4110,18 @@ def admin_usuario_asignar_areas(usuario_id):
 
     # Obtener usuario (solo de la empresa actual)
     cursor.execute("""
-        SELECT id, nombre
+        SELECT id, nombre, empresa_id
         FROM usuarios
-        WHERE id = %s AND empresa_id = %s
+        WHERE id = %s
         LIMIT 1
-    """, (usuario_id, eid))
+    """, (usuario_id,))
     usuario = cursor.fetchone()
 
     if not usuario:
         cursor.close()
         db.close()
         flash('Usuario no encontrado', 'danger')
-        return redirect(url_for('admin_registro_usuarios'))  # ajusta si tu endpoint es otro
+        return redirect(url_for('admin_gestion_usuarios'))  # ajusta si tu endpoint es otro
 
     if request.method == 'POST':
         area_ids = request.form.getlist('area_id[]')
@@ -3098,47 +4136,47 @@ def admin_usuario_asignar_areas(usuario_id):
 
         # Crear / reactivar asignaciones
         for area_id in area_ids:
-            if not area_id:
-                continue
+                if not area_id:
+                    continue
+                area_id = int(area_id)
+                rol = request.form.get(f'rol_{area_id}', 'operador')
+                puede_autorizar = 1 if request.form.get(f'autorizar_{area_id}') == '1' else 0
+                puede_editar = 1 if request.form.get(f'puede_editar_{area_id}') == '1' else 0
+                puede_eliminar = 1 if request.form.get(f'puede_eliminar_{area_id}') == '1' else 0
+                notificar = 1 if request.form.get(f'notificar_{area_id}') == '1' else 0
 
-            area_id = int(area_id)
-
-            rol = request.form.get(f'rol_{area_id}', 'operador')
-            puede_autorizar = (request.form.get(f'autorizar_{area_id}') == '1')
-
-            # Buscar existente filtrando por empresa (importante)
-            cursor.execute("""
-                SELECT id
-                  FROM usuario_areas
-                 WHERE empresa_id = %s
-                   AND usuario_id = %s
-                   AND area_id = %s
-                 LIMIT 1
-            """, (eid, usuario_id, area_id))
-            existente = cursor.fetchone()
-
-            if existente:
                 cursor.execute("""
-                    UPDATE usuario_areas
-                       SET rol_area = %s,
-                           puede_autorizar = %s,
-                           activo = 1
-                     WHERE id = %s
-                """, (rol, puede_autorizar, existente['id']))
-            else:
-                cursor.execute("""
-                    INSERT INTO usuario_areas
-                        (empresa_id, usuario_id, area_id, rol_area, puede_autorizar, asignado_por, activo)
-                    VALUES
-                        (%s, %s, %s, %s, %s, %s, 1)
-                """, (eid, usuario_id, area_id, rol, puede_autorizar, uid))
+                    SELECT id FROM usuario_areas
+                    WHERE empresa_id = %s AND usuario_id = %s AND area_id = %s
+                    LIMIT 1
+                """, (eid, usuario_id, area_id))
+                existente = cursor.fetchone()
+
+                if existente:
+                    cursor.execute("""
+                        UPDATE usuario_areas
+                        SET rol_area = %s, puede_autorizar = %s, puede_editar = %s,
+                            puede_eliminar = %s, notificar_alertas = %s, activo = 1
+                        WHERE id = %s
+                    """, (rol, puede_autorizar, puede_editar, puede_eliminar, notificar, existente['id']))
+                else:
+                    cursor.execute("""
+                        INSERT INTO usuario_areas
+                            (empresa_id, usuario_id, area_id, rol_area, puede_autorizar,
+                            puede_editar, puede_eliminar, notificar_alertas, asignado_por, activo)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                    """, (eid, usuario_id, area_id, rol, puede_autorizar,
+                        puede_editar, puede_eliminar, notificar, uid))
 
         db.commit()
         cursor.close()
         db.close()
 
         flash(f'✅ Áreas asignadas a {usuario["nombre"]}', 'success')
-        return redirect(url_for('admin_registro_usuarios'))  # o admin_usuario_areas si esa ruta existe
+        return_to = request.form.get('return_to', '') or request.args.get('return_to', '')
+        if return_to:
+            return redirect(return_to)
+        return redirect(url_for('admin_usuario_areas'))
 
     # GET: áreas del sistema + estado de asignación (por empresa)
     cursor.execute("""
@@ -3154,7 +4192,7 @@ def admin_usuario_asignar_areas(usuario_id):
                 AND ua.activo = 1
          WHERE a.empresa_id = %s
            AND a.activo = 1
-         ORDER BY a.orden
+         ORDER BY a.nombre
     """, (usuario_id, eid, eid))
     areas = cursor.fetchall()
 
@@ -3807,7 +4845,7 @@ def _pt_items_all():
         WHERE m.tipo_inventario_id = 3
           AND m.empresa_id = %s
           AND m.activo = 1
-        ORDER BY orden ASC, COALESCE(p.alias, m.nombre) ASC
+        ORDER BY nombre ASC, COALESCE(p.alias, m.nombre) ASC
     """, (eid, eid))
     rows = cur.fetchall()
     cur.close()
@@ -3850,6 +4888,7 @@ def _pt_items_all():
             "modo": modo,
             "costo": costo,
             "precio": precio,
+            "pu": float(precio),  # ← AGREGADO: Alias para compatibilidad con caja.html
             "pct_usado": pct_usado,
             "markup_pct": markup_pct,
             "precio_manual": precio_manual,
@@ -3938,15 +4977,14 @@ def apertura_turno():
         
         # POST - Procesar apertura
         if turno_abierto:
-            cursor.close()
-            db.close()
-            flash('Ya tienes un turno abierto', 'warning')
+            # ... mensaje mejorado ...
             return redirect(url_for('caja'))
-        
+
+        # ✅ MANTENER ESTO:
         fondo_inicial = float(request.form.get('fondo_inicial', 0))
         tipo_cambio = float(request.form.get('tipo_cambio', 20.0))
         notas = request.form.get('notas', '')
-        
+
         if fondo_inicial < 0 or tipo_cambio < 0:
             cursor.close()
             db.close()
@@ -4003,7 +5041,7 @@ def apertura_turno():
 @app.get("/caja")
 @require_login
 def caja():
-    """Interfaz principal de caja/POS (multiempresa)"""
+    """Interfaz principal de caja/POS (multiempresa) con información de turnos"""
     uid = g.usuario_id
     eid = g.empresa_id
 
@@ -4015,11 +5053,13 @@ def caja():
     db = None
     cursor = None
     try:
-        # Verificar turno abierto del usuario en su empresa
         db = conexion_db()
         cursor = db.cursor(dictionary=True)
         print("✅ Conexión a BD exitosa")
 
+        # ========================================
+        # 1. VERIFICAR TURNO ABIERTO (EXISTENTE)
+        # ========================================
         cursor.execute(
             """
             SELECT *
@@ -4027,6 +5067,7 @@ def caja():
             WHERE usuario_id = %s
               AND empresa_id = %s
               AND estado = 'abierto'
+            ORDER BY fecha_apertura DESC
             LIMIT 1
             """,
             (uid, eid)
@@ -4034,16 +5075,78 @@ def caja():
         turno_abierto = cursor.fetchone()
         print(f"✅ Turno encontrado: {turno_abierto is not None}")
 
-        # Cerrar pronto la conexión
-        cursor.close(); cursor = None
-        db.close(); db = None
-
         if not turno_abierto:
             print("❌ No hay turno abierto, redirigiendo...")
+            cursor.close(); cursor = None
+            db.close(); db = None
             flash('⚠️ Debes abrir un turno antes de usar la caja', 'warning')
             return redirect(url_for('apertura_turno'))
 
-        # Sesión POS
+        # ========================================
+        # 2. INFORMACIÓN COMPLETA DEL TURNO (NUEVO)
+        # ========================================
+        cursor.execute("""
+            SELECT id, 
+                fecha_apertura, 
+                fecha_cierre,
+                fondo_inicial, 
+                tipo_cambio,
+                estado,
+                DATEDIFF(NOW(), fecha_apertura) as dias_abierto
+            FROM turnos 
+            WHERE id = %s
+        """, (turno_abierto['id'],))
+        turno_actual = cursor.fetchone()
+
+        # Formatear fecha en Python (más confiable)
+        if turno_actual and turno_actual.get('fecha_apertura'):
+            from datetime import datetime
+            fecha_dt = turno_actual['fecha_apertura']
+            
+            # fecha_apertura ya viene como datetime desde MySQL
+            if isinstance(fecha_dt, datetime):
+                turno_actual['fecha_formato'] = fecha_dt.strftime('%d/%m/%Y')
+                turno_actual['hora_apertura'] = fecha_dt.strftime('%H:%M')
+                print(f"✅ Info turno obtenida: {turno_actual['fecha_formato']}")
+            else:
+                turno_actual['fecha_formato'] = 'Fecha desconocida'
+                turno_actual['hora_apertura'] = '--:--'
+                print(f"⚠️ fecha_apertura no es datetime: {type(fecha_dt)}")
+        else:
+            turno_actual['fecha_formato'] = 'Sin turno'
+            turno_actual['hora_apertura'] = '--:--'
+            print("⚠️ No hay turno_actual o fecha_apertura")
+
+
+        # ========================================
+        # 3. VERIFICAR SI ES TURNO ANTIGUO (NUEVO)
+        # ========================================
+        dias_abierto = turno_actual.get('dias_abierto', 0)
+        turno_hoy = (dias_abierto == 0)
+        turno_antiguo = (dias_abierto > 0)
+        
+        if turno_antiguo:
+            print(f"⚠️  TURNO ANTIGUO DETECTADO: {dias_abierto} día(s)")
+        
+        # ========================================
+        # 4. CONTAR TURNOS PENDIENTES (NUEVO)
+        # ========================================
+        cursor.execute("""
+            SELECT COUNT(*) as turnos_pendientes
+            FROM turnos 
+            WHERE empresa_id = %s 
+              AND usuario_id = %s 
+              AND estado = 'abierto'
+              AND fecha_apertura < DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        """, (eid, uid))
+        result = cursor.fetchone()
+        turnos_pendientes = result['turnos_pendientes'] if result else 0
+        
+        print(f"✅ Turnos pendientes: {turnos_pendientes}")
+
+        # ========================================
+        # 5. SESIÓN POS (EXISTENTE)
+        # ========================================
         print("✅ Inicializando sesión...")
         session.setdefault("carrito", [])
         session.setdefault("pos_sel", [])
@@ -4056,8 +5159,8 @@ def caja():
         print("✅ Calculando totales...")
         totals = _totales(carrito, aplica_iva)
 
-        print("✅ Obteniendo items PT (filtrados por empresa dentro de _pt_items_all)...")
-        items_all = _pt_items_all()  # esta función debe usar g.empresa_id internamente
+        print("✅ Obteniendo items PT (filtrados por empresa)...")
+        items_all = _pt_items_all()
         print(f"✅ Items disponibles: {len(items_all)}")
 
         sel_ids = set(int(x) for x in session.get("pos_sel", []))
@@ -4066,12 +5169,19 @@ def caja():
         items_pos = [it for it in items_all if it["id"] in sel_ids]
         print(f"✅ Items POS finales: {len(items_pos)}")
 
-        # Tipo de cambio del turno actual (ajusta el nombre de columna si difiere)
-        tipo_cambio = turno_abierto.get('tipo_cambio', 20.0)
+        # Tipo de cambio del turno actual
+        tipo_cambio = turno_actual.get('tipo_cambio', 20.0)
 
-        print("✅ Renderizando template...")
+        # ========================================
+        # 6. CERRAR CONEXIÓN Y RENDERIZAR
+        # ========================================
+        cursor.close(); cursor = None
+        db.close(); db = None
+
+        print("✅ Renderizando template con info de turno...")
         return render_template(
             "cobranza/caja.html",
+            # Variables existentes
             carrito=carrito,
             totals=totals,
             tipo_cambio=tipo_cambio,
@@ -4079,7 +5189,13 @@ def caja():
             items_all=items_all,
             sel_ids=sel_ids,
             holds=session.get("caja_holds", []),
-            aplica_iva=aplica_iva
+            aplica_iva=aplica_iva,
+            
+            # ===== NUEVAS VARIABLES DE TURNO =====
+            turno_actual=turno_actual,
+            turno_hoy=turno_hoy,
+            turno_antiguo=turno_antiguo,
+            turnos_pendientes=turnos_pendientes
         )
 
     except Exception as e:
@@ -4431,56 +5547,73 @@ def eliminar_merma(merma_id):
 @require_login
 def historial_tickets():
     eid = g.empresa_id
-    
-    fecha_filtro = request.args.get('fecha')
-    buscar = request.args.get('buscar', '').strip()
-    
+
+    from datetime import date
+    hoy = date.today().strftime('%Y-%m-%d')
+    fecha_inicio = request.args.get('fecha_inicio', hoy)
+    fecha_fin = request.args.get('fecha_fin', hoy)
+    turno_id = request.args.get('turno_id', '')
+
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
-    
+
     try:
         query = """
-            SELECT 
-                id,
-                folio,
-                total,
-                metodo_pago,
-                efectivo_recibido,
-                cambio,
-                DATE_FORMAT(fecha, '%%Y-%%m-%%d %%H:%%i') as fecha_formateada,
-                DATE_FORMAT(fecha, '%%Y-%%m-%%d') as fecha_corta
-            FROM caja_ventas
-            WHERE empresa_id = %s
+            SELECT
+                v.id,
+                v.total,
+                v.turno_id,
+                v.usuario_id,
+                v.fecha,
+                u.nombre as cajero
+            FROM caja_ventas v
+            LEFT JOIN usuarios u ON v.usuario_id = u.id
+            WHERE v.empresa_id = %s
         """
         params = [eid]
-        
-        if fecha_filtro:
-            query += " AND DATE(fecha) = %s"
-            params.append(fecha_filtro)
-        
-        if buscar:
-            query += " AND (folio LIKE %s OR id LIKE %s)"
-            params.extend([f'%{buscar}%', f'%{buscar}%'])
-        
-        query += " ORDER BY fecha DESC LIMIT 100"
-        
+
+        if fecha_inicio:
+            query += " AND DATE(v.fecha) >= %s"
+            params.append(fecha_inicio)
+
+        if fecha_fin:
+            query += " AND DATE(v.fecha) <= %s"
+            params.append(fecha_fin)
+
+        if turno_id:
+            query += " AND v.turno_id = %s"
+            params.append(turno_id)
+
+        query += " ORDER BY v.fecha DESC LIMIT 200"
+
         cur.execute(query, params)
-        tickets = cur.fetchall()
-        
-        # Calcular totales
-        total_tickets = len(tickets)
-        total_ventas = sum(t['total'] or 0 for t in tickets)
-        
+        ventas = cur.fetchall()
+
+        cur.execute("""
+            SELECT t.id, t.fecha_apertura, u.nombre as usuario_nombre
+            FROM turnos t
+            LEFT JOIN usuarios u ON t.usuario_id = u.id
+            WHERE t.empresa_id = %s
+            ORDER BY t.fecha_apertura DESC
+            LIMIT 50
+        """, [eid])
+        turnos = cur.fetchall()
+
+        cantidad_tickets = len(ventas)
+        total_ventas = sum(v['total'] or 0 for v in ventas)
+
     finally:
         cur.close()
         conn.close()
-    
+
     return render_template(
         'cobranza/historial_tickets.html',
-        tickets=tickets,
-        fecha_filtro=fecha_filtro,
-        buscar=buscar,
-        total_tickets=total_tickets,
+        ventas=ventas,
+        turnos=turnos,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        turno_id=turno_id,
+        cantidad_tickets=cantidad_tickets,
         total_ventas=total_ventas
     )
 
@@ -5002,6 +6135,122 @@ def cerrar_turno():
         flash(f'Error: {str(e)}', 'danger')
         return redirect(url_for('apertura_turno'))
 
+@app.route('/cerrar_turno_antiguo', methods=['POST'])
+@require_login
+def cerrar_turno_antiguo():
+    """Cierre rápido de turno antiguo sin cerrar"""
+    
+    # ========== DEBUG ==========
+    print("=" * 60)
+    print("🔍 DEBUG: cerrar_turno_antiguo llamado")
+    print(f"Form data: {request.form}")
+    print(f"turno_id: {request.form.get('turno_id')}")
+    print(f"efectivo_final: {request.form.get('efectivo_final')}")
+    print(f"observaciones: {request.form.get('observaciones')}")
+    print(f"g.empresa_id: {g.empresa_id}")
+    print(f"g.usuario_id: {g.usuario_id}")
+    print("=" * 60)
+    # ===========================
+    
+    turno_id = request.form.get('turno_id')
+    efectivo_final_raw = request.form.get('efectivo_final', '0')
+    observaciones = request.form.get('observaciones', '')
+
+    # Validar que turno_id existe
+    if not turno_id:
+        print("❌ ERROR: turno_id está vacío")
+        flash('❌ Error: No se pudo identificar el turno', 'danger')
+        return redirect(url_for('caja'))
+
+    # Validar efectivo_final - USAR DECIMAL en lugar de float
+    try:
+        efectivo_final = Decimal(str(efectivo_final_raw))
+    except (ValueError, TypeError, Exception):
+        print(f"❌ ERROR: efectivo_final inválido: {efectivo_final_raw}")
+        flash('❌ Error: El monto de efectivo final es inválido', 'danger')
+        return redirect(url_for('caja'))
+
+    eid = g.empresa_id
+    uid = g.usuario_id
+
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    try:
+        # Verificar que el turno pertenece al usuario
+        cursor.execute("""
+            SELECT id, fondo_inicial, total_ventas, total_gastos, total_retiros
+            FROM turnos 
+            WHERE id = %s 
+              AND empresa_id = %s 
+              AND usuario_id = %s
+              AND estado = 'abierto'
+        """, (turno_id, eid, uid))
+        
+        turno = cursor.fetchone()
+        
+        print(f"🔍 Turno encontrado: {turno}")
+        
+        if not turno:
+            cursor.close()
+            db.close()
+            print("❌ Turno no encontrado en BD")
+            flash('⚠️ Turno no encontrado o ya cerrado', 'warning')
+            return redirect(url_for('caja'))
+        
+        # Calcular diferencia
+        efectivo_esperado = Decimal(str(
+            turno['fondo_inicial'] + 
+            turno['total_ventas'] - 
+            turno['total_gastos'] - 
+            turno['total_retiros']
+        ))
+        
+        diferencia = efectivo_final - efectivo_esperado
+        
+        print(f"💰 Efectivo esperado: {efectivo_esperado}")
+        print(f"💰 Efectivo final: {efectivo_final}")
+        print(f"💰 Diferencia: {diferencia}")
+        
+        # Cerrar el turno
+        cursor.execute("""
+            UPDATE turnos 
+            SET fecha_cierre = NOW(),
+                efectivo_final = %s,
+                diferencia = %s,
+                observaciones = CONCAT(COALESCE(observaciones, ''), '\n[CIERRE RÁPIDO] ', %s),
+                estado = 'cerrado'
+            WHERE id = %s
+        """, (float(efectivo_final), float(diferencia), observaciones, turno_id))
+        
+        db.commit()
+        print("✅ Turno cerrado exitosamente")
+        
+        cursor.close()
+        db.close()
+        
+        if abs(diferencia) > 0.01:
+            if diferencia > 0:
+                flash(f'✅ Turno #{turno_id} cerrado. SOBRANTE: ${float(diferencia):,.2f}', 'warning')
+            else:
+                flash(f'✅ Turno #{turno_id} cerrado. FALTANTE: ${abs(diferencia):,.2f}', 'danger')
+        else:
+            flash(f'✅ Turno #{turno_id} cerrado correctamente. Cuadre exacto.', 'success')
+        
+        return redirect(url_for('caja'))
+        
+    except Exception as e:
+        db.rollback()
+        cursor.close()
+        db.close()
+        
+        print(f"❌ ERROR al cerrar turno antiguo: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        flash(f'❌ Error al cerrar el turno: {str(e)}', 'danger')
+        return redirect(url_for('caja'))
+
 # ==================== CONSUMOS PROPIOS ====================
 
 @app.route('/consumos_propios')
@@ -5233,14 +6482,15 @@ def pt_nuevo():
                   (%s, %s, 3, 0.00, 1, 1, 0, 0, 1, 'PT', 9999)
             """, (eid, nombre))
             mid = cursor.lastrowid
+            print(f"DEBUG pt_nuevo: eid={eid}, nombre={nombre}, mid={mid}")
 
             # Inventario inicial del PT (si tu tabla inventario tiene empresa_id)
             cursor.execute("""
-                INSERT IGNORE INTO inventario
-                  (empresa_id, mercancia_id, inventario_inicial, entradas, salidas, aprobado, disponible_base)
+                INSERT IGNORE INTO inventario_mp
+                  (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado, disponible_base)
                 VALUES
-                  (%s, %s, 0, 0, 0, 0, 0)
-            """, (eid, mid))
+                  (%s, %s, %s, 0, 0, 0, 0, 0)
+            """, (eid, mid, nombre))
 
             # Configuración de precio inicial (modo AUTO) por empresa
             cursor.execute("""
@@ -5278,7 +6528,7 @@ def inventario_movimientos_api(mercancia_id):
     cur = conn.cursor(dictionary=True)
     cur.execute("""
         SELECT id, fecha, tipo_inventario_id, tipo_movimiento, unidades, precio_unitario, referencia
-        FROM inventario_movimientos
+        FROM inventario_movimientos_mp
         WHERE mercancia_id = %s
         ORDER BY fecha ASC, id ASC
     """, (mercancia_id,))
@@ -5476,18 +6726,22 @@ def get_default_inventory_parent(cursor, conn) -> int:
 import uuid
 
 def registrar_movimiento(
-    mercancia_id,
     tipo_inventario_id,
+    mercancia_id,
     tipo_movimiento,
     unidades,
     precio_unitario=0,
     referencia=None,
+    empresa_id=None,  # ✅ NUEVO parámetro
     fecha=None
 ):
     """Registra un movimiento de inventario CON EMPRESA"""
     from datetime import date as _date
     
-    eid = getattr(g, "empresa_id", None) or session.get("empresa_id") or 1
+    # ✅ CORREGIDO: Usar parámetro empresa_id si se pasa, sino tomar de g/session
+    if empresa_id is None:
+        empresa_id = getattr(g, "empresa_id", None) or session.get("empresa_id") or 1
+    
     uid = getattr(g, "usuario_id", None) or session.get("usuario_id")
 
     if fecha is None:
@@ -5496,12 +6750,13 @@ def registrar_movimiento(
     conn = conexion_db()
     cur = conn.cursor()
 
+    # ✅ CORREGIDO: Tabla correcta
     cur.execute("""
-        INSERT INTO inventario_movimientos
+        INSERT INTO inventario_movimientos_mp
             (empresa_id, usuario_id, tipo_inventario_id, mercancia_id,
              fecha, tipo_movimiento, unidades, precio_unitario, referencia)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (eid, uid, tipo_inventario_id, mercancia_id, fecha,
+    """, (empresa_id, uid, tipo_inventario_id, mercancia_id, fecha,
           tipo_movimiento, unidades, precio_unitario, referencia))
 
     conn.commit()
@@ -5530,21 +6785,23 @@ def get_or_create_catalogo(cur, conn, nombre: str, tipo: str = 'MP') -> int:
     conn.commit()
     return cur.lastrowid
 
-def salida_peps(tipo_inventario_id: int, mercancia_id: int, unidades_salida, referencia: str):
+def salida_peps(tipo_inventario_id: int, mercancia_id: int, unidades_salida, referencia: str, empresa_id: int):
+    """Salida de inventario usando método PEPS - VALIDANDO EMPRESA"""
     conn = conexion_db()
     cursor = conn.cursor(dictionary=True)
 
     try:
-        # Tomar primero las entradas más antiguas (PEPS)
+        # ✅ CORREGIDO: Tabla correcta + filtro de empresa
         cursor.execute("""
             SELECT id, unidades, precio_unitario
-            FROM inventario_movimientos
+            FROM inventario_movimientos_mp
             WHERE tipo_inventario_id = %s
               AND mercancia_id = %s
+              AND empresa_id = %s
               AND LOWER(tipo_movimiento) IN ('entrada','compra')
               AND unidades > 0
             ORDER BY fecha ASC, id ASC
-        """, (tipo_inventario_id, mercancia_id))
+        """, (tipo_inventario_id, mercancia_id, empresa_id))
 
         lotes = cursor.fetchall()
         unidades_restantes = float(unidades_salida)
@@ -5558,20 +6815,22 @@ def salida_peps(tipo_inventario_id: int, mercancia_id: int, unidades_salida, ref
             usar = min(disponibles, unidades_restantes)
             costo_total += usar * float(lote['precio_unitario'])
 
-            # Restar del lote de entrada
-            cursor.execute(
-                "UPDATE inventario SET unidades = unidades - %s WHERE id = %s",
-                (usar, lote['id'])
-            )
+            # ✅ CORREGIDO: Actualizar tabla correcta con filtro de empresa
+            cursor.execute("""
+                UPDATE inventario_movimientos_mp 
+                SET unidades = unidades - %s
+                WHERE id = %s AND empresa_id = %s
+            """, (usar, lote['id'], empresa_id))
 
-            # Registrar la salida como movimiento
+            # ✅ CORREGIDO: Registrar salida con empresa_id
             registrar_movimiento(
                 tipo_inventario_id=tipo_inventario_id,
                 mercancia_id=mercancia_id,
                 tipo_movimiento='salida',
                 unidades=usar,
                 precio_unitario=float(lote['precio_unitario']),
-                referencia=referencia
+                referencia=referencia,
+                empresa_id=empresa_id  # ✅ NUEVO parámetro
             )
 
             unidades_restantes -= usar
@@ -5686,7 +6945,7 @@ def _render_inventario_por_almacen(almacen_id, tipo_merc, titulo):
     finally:
         cur.close(); conn.close()
 
-    return render_template('inventarios/pt/inventario.html',
+    return render_template('inventarios/pt/inventario_pt.html',
                            inventario=inventario_final,
                            titulo=titulo,
                            almacen_id=almacen_id,
@@ -5791,7 +7050,7 @@ def calcular_precio_promedio_periodo(mercancia_id, dias=60, metodo='promedio_pon
                 SELECT 
                     COALESCE(SUM(unidades * precio_unitario), 0) as valor_total,
                     COALESCE(SUM(unidades), 0) as unidades_total
-                FROM inventario_movimientos
+                FROM inventario_movimientos_mp
                 WHERE mercancia_id = %s
                 AND tipo_movimiento IN ('compra', 'entrada')
                 AND precio_unitario > 0
@@ -5808,7 +7067,7 @@ def calcular_precio_promedio_periodo(mercancia_id, dias=60, metodo='promedio_pon
             # OPCIÓN 2: Promedio simple
             cur.execute("""
                 SELECT AVG(precio_unitario) as precio_promedio
-                FROM inventario_movimientos
+                FROM inventario_movimientos_mp
                 WHERE mercancia_id = %s
                 AND tipo_movimiento IN ('compra', 'entrada')
                 AND precio_unitario > 0
@@ -5822,7 +7081,7 @@ def calcular_precio_promedio_periodo(mercancia_id, dias=60, metodo='promedio_pon
             # OPCIÓN 3: Última compra
             cur.execute("""
                 SELECT precio_unitario
-                FROM inventario_movimientos
+                FROM inventario_movimientos_mp
                 WHERE mercancia_id = %s
                 AND tipo_movimiento IN ('compra', 'entrada')
                 AND precio_unitario > 0
@@ -6001,7 +7260,7 @@ def panel_de_control():
             SUM(CASE WHEN UPPER(tipo_movimiento)='ENTRADA' THEN unidades ELSE 0 END)
             - SUM(CASE WHEN UPPER(tipo_movimiento)='SALIDA'  THEN unidades ELSE 0 END), 0
           ) AS terminados
-        FROM inventario_movimientos
+        FROM inventario_movimientos_mp
         WHERE empresa_id = %s
           AND tipo_inventario_id = 3
     """, (eid,))
@@ -6148,10 +7407,10 @@ def dashboard():
                 COUNT(DISTINCT m.id) as total_items,
                 COALESCE(SUM(i.inventario_inicial + i.entradas - i.salidas), 0) as stock
             FROM mercancia m
-            LEFT JOIN inventario i ON i.mercancia_id = m.id AND i.empresa_id = %s
+            LEFT JOIN inventario_mp i ON i.mercancia_id = m.id
             WHERE m.tipo_inventario_id = 1 
               AND m.empresa_id = %s
-        """, (eid, eid))
+        """, (eid,))
         row = cur.fetchone()
         if row:
             inv_mp = {
@@ -9106,26 +10365,47 @@ def _inventario_por_tipo(tipo_inventario_id: int):
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     try:
-        cur.execute("""
-            SELECT
-                pb.id AS id,
-                pb.nombre AS producto,
-                COALESCE(SUM(i.inventario_inicial),0) AS inventario_inicial,
-                COALESCE(SUM(i.entradas),0) AS entradas,
-                COALESCE(SUM(i.salidas),0) AS salidas,
-                COALESCE(SUM(i.inventario_inicial+i.entradas-i.salidas),0) AS disponible,
-                NULL AS valor_inventario,
-                MAX(i.aprobado) AS aprobado,
-                MIN(m.id) AS mercancia_id
-            FROM producto_base pb
-            JOIN mercancia m ON m.producto_base_id = pb.id
-            LEFT JOIN inventario i ON i.mercancia_id = m.id
-            WHERE pb.activo = 1
-              AND m.tipo_inventario_id = %s
-              AND m.empresa_id = %s
-            GROUP BY pb.id, pb.nombre
-            ORDER BY pb.nombre ASC
-        """, (tipo_inventario_id, eid))
+        if tipo_inventario_id == 3:  # PT
+            cur.execute("""
+                SELECT
+                    m.id AS id,
+                    m.nombre AS producto,
+                    COALESCE(i.inventario_inicial, 0) AS inventario_inicial,
+                    COALESCE(i.entradas, 0) AS entradas,
+                    COALESCE(i.salidas, 0) AS salidas,
+                    COALESCE(i.inventario_inicial + i.entradas - i.salidas, 0) AS disponible,
+                    COALESCE(i.precio_unitario * (i.inventario_inicial + i.entradas - i.salidas), 0) AS valor_inventario,
+                    1 AS aprobado,
+                    m.id AS mercancia_id
+                FROM mercancia m
+                LEFT JOIN inventario_pt i ON i.producto_id = m.id
+                WHERE m.tipo_inventario_id = 3
+                  AND m.empresa_id = %s
+                  AND m.activo = 1
+                ORDER BY m.nombre ASC
+            """, (eid,))
+        else:  # MP (tipo 1)
+            cur.execute("""
+                SELECT
+                    pb.id AS id,
+                    pb.nombre AS producto,
+                    COALESCE(SUM(i.inventario_inicial), 0) AS inventario_inicial,
+                    COALESCE(SUM(i.entradas), 0) AS entradas,
+                    COALESCE(SUM(i.salidas), 0) AS salidas,
+                    COALESCE(SUM(i.inventario_inicial + i.entradas - i.salidas), 0) AS disponible,
+                    NULL AS valor_inventario,
+                    MAX(i.aprobado) AS aprobado,
+                    MIN(m.id) AS mercancia_id
+                FROM producto_base pb
+                JOIN mercancia m ON m.producto_base_id = pb.id
+                LEFT JOIN inventario_mp i ON i.mercancia_id = m.id
+                WHERE pb.activo = 1
+                  AND m.tipo_inventario_id = 1
+                  AND m.empresa_id = %s
+                GROUP BY pb.id, pb.nombre
+                ORDER BY pb.nombre ASC
+            """, (eid,))
+        
         return cur.fetchall()
     finally:
         cur.close()
@@ -9162,8 +10442,7 @@ def mostrar_inventario():
         cur.close()
         conn.close()
 
-    return render_template('inventarios/pt/inventario.html', inventario=inventario)
-
+    return render_template('inventarios/pt/inventario_pt.html', inventario=inventario)
 
 @app.route('/inventarios/movimientos/<int:mercancia_id>')
 def inventario_movimientos(mercancia_id):
@@ -9184,78 +10463,48 @@ def inventario_movimientos(mercancia_id):
     almacen_s = (request.args.get('almacen') or '').strip()
     almacen_id = int(almacen_s) if almacen_s.isdigit() else None
 
-    # 2) query por almacén
-    if almacen_id == 1:
+    # Query único para todos los casos (filtrar por almacen_id si aplica)
+    if almacen_id:
         sql = """
-        SELECT * FROM (
-            SELECT lc.fecha AS fecha_raw, DATE_FORMAT(lc.fecha,'%d/%b/%y') AS fecha_fmt,
-                   lc.numero_factura AS documento, lc.proveedor AS fuente,
-                   dc.unidades, dc.contenido_neto_total,
-                   CASE WHEN dc.contenido_neto_total>0
-                        THEN dc.precio_total/dc.contenido_neto_total ELSE NULL END AS precio_unitario,
-                   dc.precio_total AS importe, dc.producto AS detalle, dc.compra_id,
-                   'compra' AS tipo_movimiento
-            FROM detalle_compra dc
-            JOIN listado_compras lc ON dc.compra_id = lc.id
-            WHERE dc.mercancia_id = %s
-            UNION ALL
-            SELECT im.fecha AS fecha_raw, DATE_FORMAT(im.fecha,'%d/%b/%y') AS fecha_fmt,
-                im.referencia AS documento, '' AS fuente, im.unidades,
-                NULL AS contenido_neto_total, im.precio_unitario,
-                (im.unidades*im.precio_unitario) AS importe,
-                NULL AS detalle, NULL AS compra_id, im.tipo_movimiento
-            FROM inventario_movimientos im
-            WHERE im.mercancia_id = %s 
-            AND im.tipo_inventario_id = 1
-            AND UPPER(im.tipo_movimiento) <> 'COMPRA'
-            AND im.unidades > 0
-            AND im.tipo_movimiento IS NOT NULL
-            AND im.tipo_movimiento <> ''
-        ) t
-        ORDER BY t.fecha_raw ASC, t.documento ASC
+        SELECT 
+            im.fecha AS fecha_raw, 
+            DATE_FORMAT(im.fecha,'%%d/%%b/%%y') AS fecha_fmt,
+            CONCAT(im.referencia_tipo, '-', im.referencia_id) AS documento,
+            im.observaciones AS fuente,
+            im.cantidad AS unidades,
+            NULL AS contenido_neto_total,
+            im.costo_unitario AS precio_unitario,
+            im.costo_total AS importe,
+            NULL AS detalle,
+            NULL AS compra_id,
+            im.tipo_movimiento
+        FROM inventario_movimientos_mp im
+        WHERE im.mp_id = %s 
+        AND im.almacen_id = %s
+        ORDER BY im.fecha ASC, im.id ASC
         """
-        cursor.execute(sql, (mercancia_id, mercancia_id))
-        movimientos = cursor.fetchall()
-
-    elif almacen_id in (2, 3):
-        cursor.execute("""
-            SELECT im.fecha AS fecha_raw, DATE_FORMAT(im.fecha,'%d/%b/%y') AS fecha_fmt,
-                   im.referencia AS documento, '' AS fuente, im.unidades,
-                   NULL AS contenido_neto_total, im.precio_unitario,
-                   (im.unidades*im.precio_unitario) AS importe, im.tipo_movimiento
-            FROM inventario_movimientos im
-            WHERE im.mercancia_id = %s AND im.tipo_inventario_id = %s
-            ORDER BY im.fecha ASC, im.id ASC
-        """, (mercancia_id, almacen_id))
-        movimientos = cursor.fetchall()
-
+        cursor.execute(sql, (mercancia_id, almacen_id))
     else:
         sql = """
-        SELECT * FROM (
-            SELECT lc.fecha AS fecha_raw, DATE_FORMAT(lc.fecha,'%d/%b/%y') AS fecha_fmt,
-                   lc.numero_factura AS documento, lc.proveedor AS fuente,
-                   dc.unidades, dc.contenido_neto_total,
-                   CASE WHEN dc.contenido_neto_total>0
-                        THEN dc.precio_total/dc.contenido_neto_total ELSE NULL END AS precio_unitario,
-                   dc.precio_total AS importe, dc.producto AS detalle, dc.compra_id,
-                   'compra' AS tipo_movimiento
-            FROM detalle_compra dc
-            JOIN listado_compras lc ON dc.compra_id = lc.id
-            WHERE dc.mercancia_id = %s
-            UNION ALL
-            SELECT im.fecha AS fecha_raw, DATE_FORMAT(im.fecha,'%d/%b/%y') AS fecha_fmt,
-                   im.referencia AS documento, '' AS fuente, im.unidades,
-                   NULL AS contenido_neto_total, im.precio_unitario,
-                   (im.unidades*im.precio_unitario) AS importe,
-                   NULL AS detalle, NULL AS compra_id, im.tipo_movimiento
-            FROM inventario_movimientos im
-            WHERE im.mercancia_id = %s
-              AND UPPER(im.tipo_movimiento) <> 'COMPRA'
-        ) t
-        ORDER BY t.fecha_raw ASC, t.documento ASC
+        SELECT 
+            im.fecha AS fecha_raw, 
+            DATE_FORMAT(im.fecha,'%%d/%%b/%%y') AS fecha_fmt,
+            CONCAT(im.referencia_tipo, '-', im.referencia_id) AS documento,
+            im.observaciones AS fuente,
+            im.cantidad AS unidades,
+            NULL AS contenido_neto_total,
+            im.costo_unitario AS precio_unitario,
+            im.costo_total AS importe,
+            NULL AS detalle,
+            NULL AS compra_id,
+            im.tipo_movimiento
+        FROM inventario_movimientos_mp im
+        WHERE im.mp_id = %s
+        ORDER BY im.fecha ASC, im.id ASC
         """
-        cursor.execute(sql, (mercancia_id, mercancia_id))
-        movimientos = cursor.fetchall()
+        cursor.execute(sql, (mercancia_id,))
+    
+    movimientos = cursor.fetchall()
 
     # 3) construir tablas
     rows = []
@@ -9318,11 +10567,13 @@ def inventario_movimientos(mercancia_id):
                            back_endpoint='mostrar_inventario_mp')
 
 
+
+
 @app.route('/inventarios/movimientos-producto-base/<int:producto_base_id>')
 @require_login
 def inventario_movimientos_producto_base(producto_base_id):
-    """Movimientos agrupados por producto base (filtrado por empresa)"""
-    eid = g.empresa_id  # ✅ Empresa activa
+    """Movimientos agrupados por producto base (filtrado por empresa) - SIN DUPLICADOS"""
+    eid = g.empresa_id
     
     if 'rol' not in session:
         return redirect('/login')
@@ -9354,95 +10605,137 @@ def inventario_movimientos_producto_base(producto_base_id):
     almacen_s = (request.args.get('almacen') or '').strip()
     almacen_id = int(almacen_s) if almacen_s.isdigit() else None
 
-    # 2) Query FILTRADO POR EMPRESA
+    # 2) Query CON UNION - Compras + Movimientos manuales
+    placeholders = ','.join(['%s'] * len(mercancia_ids))
+
     if almacen_id == 1:
-        placeholders = ','.join(['%s'] * len(mercancia_ids))
         sql = f"""
         SELECT * FROM (
-            SELECT lc.fecha AS fecha_raw, DATE_FORMAT(lc.fecha,'%d/%b/%Y') AS fecha_fmt,
-                   lc.numero_factura AS documento, lc.proveedor AS fuente,
-                   dc.unidades, dc.contenido_neto_total,
-                   CASE WHEN dc.contenido_neto_total>0
-                        THEN dc.precio_total/dc.contenido_neto_total ELSE NULL END AS precio_unitario,
-                   dc.precio_total AS importe, dc.producto AS detalle, dc.compra_id,
-                   'compra' AS tipo_movimiento
+            SELECT 
+                COALESCE(lc.fecha, NOW()) AS fecha_raw, 
+                DATE_FORMAT(COALESCE(lc.fecha, NOW()),'%d/%b/%Y') AS fecha_fmt,
+                CONCAT('Compra-', COALESCE(lc.numero_factura, dc.compra_id)) AS documento,
+                COALESCE(lc.proveedor, 'Sin proveedor') AS fuente,
+                dc.contenido_neto_total AS unidades,
+                dc.contenido_neto_total,
+                CASE WHEN dc.contenido_neto_total > 0 
+                    THEN dc.precio_total / dc.contenido_neto_total 
+                    ELSE dc.precio_unitario END AS precio_unitario,
+                dc.precio_total AS importe,
+                'compra' AS tipo_movimiento
             FROM detalle_compra dc
-            JOIN listado_compras lc ON dc.compra_id = lc.id
+            LEFT JOIN compras lc ON dc.compra_id = lc.id
             WHERE dc.mercancia_id IN ({placeholders})
-              AND dc.empresa_id = %s
-              AND lc.empresa_id = %s
+            AND dc.empresa_id = %s
+            
             UNION ALL
-            SELECT im.fecha AS fecha_raw, DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
-                im.referencia AS documento, '' AS fuente, im.unidades,
-                NULL AS contenido_neto_total, im.precio_unitario,
-                (im.unidades*im.precio_unitario) AS importe,
-                NULL AS detalle, NULL AS compra_id, im.tipo_movimiento
-            FROM inventario_movimientos im
-            WHERE im.mercancia_id IN ({placeholders})
-            AND im.tipo_inventario_id = 1
-            AND im.empresa_id = %s
-            AND UPPER(im.tipo_movimiento) <> 'COMPRA'
-            AND im.unidades > 0
-            AND im.tipo_movimiento IS NOT NULL
-            AND im.tipo_movimiento <> ''
+            
+            SELECT 
+                im.fecha AS fecha_raw, 
+                DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
+                CONCAT(im.referencia_tipo, '-', im.referencia_id) AS documento,
+                im.observaciones AS fuente,
+                im.cantidad AS unidades,
+                NULL AS contenido_neto_total,
+                im.costo_unitario AS precio_unitario,
+                im.costo_total AS importe,
+                im.tipo_movimiento
+            FROM inventario_movimientos_mp im
+            WHERE im.mp_id IN ({placeholders})
+            AND im.almacen_id = 1
         ) t
-        ORDER BY t.fecha_raw ASC, t.documento ASC
+        ORDER BY t.fecha_raw ASC
         """
-        cursor.execute(sql, mercancia_ids + [eid, eid] + mercancia_ids + [eid])
+        cursor.execute(sql, mercancia_ids + [eid] + mercancia_ids)
         movimientos = cursor.fetchall()
 
     elif almacen_id in (2, 3):
-        placeholders = ','.join(['%s'] * len(mercancia_ids))
-        cursor.execute(f"""
-            SELECT im.fecha AS fecha_raw, DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
-                   im.referencia AS documento, '' AS fuente, im.unidades,
-                   NULL AS contenido_neto_total, im.precio_unitario,
-                   (im.unidades*im.precio_unitario) AS importe, im.tipo_movimiento
-            FROM inventario_movimientos im
-            WHERE im.mercancia_id IN ({placeholders}) 
-              AND im.tipo_inventario_id = %s
-              AND im.empresa_id = %s
-            ORDER BY im.fecha ASC, im.id ASC
-        """, mercancia_ids + [almacen_id, eid])
+        sql = f"""
+        SELECT * FROM (
+            SELECT 
+                COALESCE(lc.fecha, NOW()) AS fecha_raw, 
+                DATE_FORMAT(COALESCE(lc.fecha, NOW()),'%d/%b/%Y') AS fecha_fmt,
+                CONCAT('Compra-', COALESCE(lc.numero_factura, dc.compra_id)) AS documento,
+                COALESCE(lc.proveedor, 'Sin proveedor') AS fuente,
+                dc.contenido_neto_total AS unidades,
+                dc.contenido_neto_total,
+                CASE WHEN dc.contenido_neto_total > 0 
+                    THEN dc.precio_total / dc.contenido_neto_total 
+                    ELSE dc.precio_unitario END AS precio_unitario,
+                dc.precio_total AS importe,
+                'compra' AS tipo_movimiento
+            FROM detalle_compra dc
+            LEFT JOIN listado_compras lc ON dc.compra_id = lc.id
+            WHERE dc.mercancia_id IN ({placeholders})
+            AND dc.empresa_id = %s
+            
+            UNION ALL
+            
+            SELECT 
+                im.fecha AS fecha_raw, 
+                DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
+                CONCAT(im.referencia_tipo, '-', im.referencia_id) AS documento,
+                im.observaciones AS fuente,
+                im.cantidad AS unidades,
+                NULL AS contenido_neto_total,
+                im.costo_unitario AS precio_unitario,
+                im.costo_total AS importe,
+                im.tipo_movimiento
+            FROM inventario_movimientos_mp im
+            WHERE im.mp_id IN ({placeholders})
+            AND im.almacen_id = %s
+        ) t
+        ORDER BY t.fecha_raw ASC
+        """
+        cursor.execute(sql, mercancia_ids + [eid] + mercancia_ids + [almacen_id])
         movimientos = cursor.fetchall()
 
     else:
-        placeholders = ','.join(['%s'] * len(mercancia_ids))
         sql = f"""
         SELECT * FROM (
-            SELECT lc.fecha AS fecha_raw, DATE_FORMAT(lc.fecha,'%d/%b/%Y') AS fecha_fmt,
-                   lc.numero_factura AS documento, lc.proveedor AS fuente,
-                   dc.unidades, dc.contenido_neto_total,
-                   CASE WHEN dc.contenido_neto_total>0
-                        THEN dc.precio_total/dc.contenido_neto_total ELSE NULL END AS precio_unitario,
-                   dc.precio_total AS importe, dc.producto AS detalle, dc.compra_id,
-                   'compra' AS tipo_movimiento
+            SELECT 
+                COALESCE(lc.fecha, NOW()) AS fecha_raw, 
+                DATE_FORMAT(COALESCE(lc.fecha, NOW()),'%d/%b/%Y') AS fecha_fmt,
+                CONCAT('Compra-', COALESCE(lc.numero_factura, dc.compra_id)) AS documento,
+                COALESCE(lc.proveedor, 'Sin proveedor') AS fuente,
+                dc.contenido_neto_total AS unidades,
+                dc.contenido_neto_total,
+                CASE WHEN dc.contenido_neto_total > 0 
+                    THEN dc.precio_total / dc.contenido_neto_total 
+                    ELSE dc.precio_unitario END AS precio_unitario,
+                dc.precio_total AS importe,
+                'compra' AS tipo_movimiento
             FROM detalle_compra dc
-            JOIN listado_compras lc ON dc.compra_id = lc.id
+            LEFT JOIN listado_compras lc ON dc.compra_id = lc.id
             WHERE dc.mercancia_id IN ({placeholders})
-              AND dc.empresa_id = %s
-              AND lc.empresa_id = %s
+            AND dc.empresa_id = %s
+            
             UNION ALL
-            SELECT im.fecha AS fecha_raw, DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
-                   im.referencia AS documento, '' AS fuente, im.unidades,
-                   NULL AS contenido_neto_total, im.precio_unitario,
-                   (im.unidades*im.precio_unitario) AS importe,
-                   NULL AS detalle, NULL AS compra_id, im.tipo_movimiento
-            FROM inventario_movimientos im
-            WHERE im.mercancia_id IN ({placeholders})
-              AND im.empresa_id = %s
-              AND UPPER(im.tipo_movimiento) <> 'COMPRA'
+            
+            SELECT 
+                im.fecha AS fecha_raw, 
+                DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
+                CONCAT(im.referencia_tipo, '-', im.referencia_id) AS documento,
+                im.observaciones AS fuente,
+                im.cantidad AS unidades,
+                NULL AS contenido_neto_total,
+                im.costo_unitario AS precio_unitario,
+                im.costo_total AS importe,
+                im.tipo_movimiento
+            FROM inventario_movimientos_mp im
+            WHERE im.mp_id IN ({placeholders})
         ) t
-        ORDER BY t.fecha_raw ASC, t.documento ASC
+        ORDER BY t.fecha_raw ASC
         """
-        cursor.execute(sql, mercancia_ids + [eid, eid] + mercancia_ids + [eid])
+        cursor.execute(sql, mercancia_ids + [eid] + mercancia_ids)
         movimientos = cursor.fetchall()
 
-    # 3) Construir tablas (sin cambios en lógica)
+    # 3) Construir tablas
     rows = []
     pu = 0.0
     saldo_u = 0.0
     saldo_mx = 0.0
+    
     for m in movimientos:
         tipo = (m.get('tipo_movimiento') or '').strip().lower()
         es_entrada = tipo in ('entrada','compra')
@@ -9450,8 +10743,7 @@ def inventario_movimientos_producto_base(producto_base_id):
         
         if es_entrada:
             entrada_u = float(contenido) if (contenido and float(contenido) > 0) else float(m.get('unidades') or 0.0)
-            pu_entrada = float(m.get('precio_unitario') or 0.0)
-            entrada_mx = entrada_u * pu_entrada
+            entrada_mx = float(m.get('importe') or 0.0)
             
             saldo_u += entrada_u
             saldo_mx += entrada_mx
@@ -9459,7 +10751,7 @@ def inventario_movimientos_producto_base(producto_base_id):
             
             salida_u = 0.0
             salida_mx = 0.0
-        
+
         elif tipo == 'salida':
             salida_u = float(m.get('unidades') or 0.0)
             salida_mx = salida_u * pu
@@ -9482,7 +10774,7 @@ def inventario_movimientos_producto_base(producto_base_id):
         })
 
     tabla_unidades = [{"fecha": r["fecha"], "documento": r["documento"], "fuente": r["fuente"],
-                       "entrada": r["entrada_u"], "salida": r["salida_u"], "saldo": r["saldo_u"]} for r in rows]
+                    "entrada": r["entrada_u"], "salida": r["salida_u"], "saldo": r["saldo_u"]} for r in rows]
     tabla_pesos = [{"fecha": r["fecha"], "documento": r["documento"], "fuente": r["fuente"],
                     "entrada": r["entrada_mx"], "salida": r["salida_mx"], "saldo": r["saldo_mx"], "pu": r["pu"]} for r in rows]
 
@@ -9490,29 +10782,203 @@ def inventario_movimientos_producto_base(producto_base_id):
     total_salidas_u = sum(r["salida_u"] for r in rows)
     total_entradas_mx = sum(r["entrada_mx"] for r in rows)
     total_salidas_mx = sum(r["salida_mx"] for r in rows)
-    
+
     saldo_final_u = rows[-1]["saldo_u"] if rows else 0.0
     saldo_final_mx = rows[-1]["saldo_mx"] if rows else 0.0
     pu_final = rows[-1]["pu"] if rows else 0.0
 
     cursor.close()
     conn.close()
-    
+
     return render_template('inventarios/inventario_movimientos.html',
-                           producto=producto,
-                           tabla_unidades=tabla_unidades,
-                           tabla_pesos=tabla_pesos,
-                           total_entradas_u=total_entradas_u,
-                           total_salidas_u=total_salidas_u,
-                           saldo_final_u=saldo_final_u,
-                           total_entradas_mx=total_entradas_mx,
-                           total_salidas_mx=total_salidas_mx,
-                           saldo_final_mx=saldo_final_mx,
-                           pu_final=pu_final,
-                           back_endpoint='mostrar_inventario_mp')
+                        producto=producto,
+                        tabla_unidades=tabla_unidades,
+                        tabla_pesos=tabla_pesos,
+                        total_entradas_u=total_entradas_u,
+                        total_salidas_u=total_salidas_u,
+                        saldo_final_u=saldo_final_u,
+                        total_entradas_mx=total_entradas_mx,
+                        total_salidas_mx=total_salidas_mx,
+                        saldo_final_mx=saldo_final_mx,
+                        pu_final=pu_final,
+                        back_endpoint='mostrar_inventario_mp')
+
+
+# ============================================================
+# ✅ NUEVO ENDPOINT JSON (PUNTO 1)
+# Usa la misma lógica para devolver:
+# - nombre (producto)
+# - disponible (saldo_final_u)
+# - precio unitario (pu_final)
+# ============================================================
+@app.route('/inventarios/movimientos-producto-base/<int:producto_base_id>/info')
+@require_login
+def inventario_movimientos_producto_base_info(producto_base_id):
+    eid = g.empresa_id
+
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+
+    # 1) Obtener nombre del producto base y mercancías (FILTRADO)
+    cursor.execute("""
+        SELECT pb.nombre as producto_base_nombre,
+               GROUP_CONCAT(m.id) as mercancia_ids
+        FROM producto_base pb
+        LEFT JOIN mercancia m ON m.producto_base_id = pb.id AND m.empresa_id = %s
+        WHERE pb.id = %s
+        GROUP BY pb.id, pb.nombre
+    """, (eid, producto_base_id))
+
+    row = cursor.fetchone()
+    if not row or not row['mercancia_ids']:
+        cursor.close()
+        conn.close()
+        return jsonify({"success": False, "error": "Producto base no encontrado o sin mercancías asociadas."}), 404
+
+    producto = row['producto_base_nombre']
+    mercancia_ids = [int(x) for x in row['mercancia_ids'].split(',')]
+
+    almacen_s = (request.args.get('almacen') or '').strip()
+    almacen_id = int(almacen_s) if almacen_s.isdigit() else None
+
+    placeholders = ','.join(['%s'] * len(mercancia_ids))
+
+    # 2) Movimientos (mismo UNION)
+    if almacen_id == 1:
+        sql = f"""
+        SELECT * FROM (
+            SELECT 
+                COALESCE(lc.fecha, NOW()) AS fecha_raw, 
+                dc.contenido_neto_total AS unidades,
+                dc.contenido_neto_total,
+                dc.precio_total AS importe,
+                'compra' AS tipo_movimiento
+            FROM detalle_compra dc
+            LEFT JOIN compras lc ON dc.compra_id = lc.id
+            WHERE dc.mercancia_id IN ({placeholders})
+            AND dc.empresa_id = %s
+            
+            UNION ALL
+            
+            SELECT 
+                im.fecha AS fecha_raw,
+                im.cantidad AS unidades,
+                NULL AS contenido_neto_total,
+                im.costo_total AS importe,
+                im.tipo_movimiento
+            FROM inventario_movimientos_mp im
+            WHERE im.mp_id IN ({placeholders})
+            AND im.almacen_id = 1
+        ) t
+        ORDER BY t.fecha_raw ASC
+        """
+        cursor.execute(sql, mercancia_ids + [eid] + mercancia_ids)
+        movimientos = cursor.fetchall()
+
+    elif almacen_id in (2, 3):
+        sql = f"""
+        SELECT * FROM (
+            SELECT 
+                COALESCE(lc.fecha, NOW()) AS fecha_raw, 
+                dc.contenido_neto_total AS unidades,
+                dc.contenido_neto_total,
+                dc.precio_total AS importe,
+                'compra' AS tipo_movimiento
+            FROM detalle_compra dc
+            LEFT JOIN listado_compras lc ON dc.compra_id = lc.id
+            WHERE dc.mercancia_id IN ({placeholders})
+            AND dc.empresa_id = %s
+            
+            UNION ALL
+            
+            SELECT 
+                im.fecha AS fecha_raw,
+                im.cantidad AS unidades,
+                NULL AS contenido_neto_total,
+                im.costo_total AS importe,
+                im.tipo_movimiento
+            FROM inventario_movimientos_mp im
+            WHERE im.mp_id IN ({placeholders})
+            AND im.almacen_id = %s
+        ) t
+        ORDER BY t.fecha_raw ASC
+        """
+        cursor.execute(sql, mercancia_ids + [eid] + mercancia_ids + [almacen_id])
+        movimientos = cursor.fetchall()
+
+    else:
+        sql = f"""
+        SELECT * FROM (
+            SELECT 
+                COALESCE(lc.fecha, NOW()) AS fecha_raw, 
+                dc.contenido_neto_total AS unidades,
+                dc.contenido_neto_total,
+                dc.precio_total AS importe,
+                'compra' AS tipo_movimiento
+            FROM detalle_compra dc
+            LEFT JOIN listado_compras lc ON dc.compra_id = lc.id
+            WHERE dc.mercancia_id IN ({placeholders})
+            AND dc.empresa_id = %s
+            
+            UNION ALL
+            
+            SELECT 
+                im.fecha AS fecha_raw,
+                im.cantidad AS unidades,
+                NULL AS contenido_neto_total,
+                im.costo_total AS importe,
+                im.tipo_movimiento
+            FROM inventario_movimientos_mp im
+            WHERE im.mp_id IN ({placeholders})
+        ) t
+        ORDER BY t.fecha_raw ASC
+        """
+        cursor.execute(sql, mercancia_ids + [eid] + mercancia_ids)
+        movimientos = cursor.fetchall()
+
+    # 3) Calcular saldo final y PU final (misma lógica)
+    pu = 0.0
+    saldo_u = 0.0
+    saldo_mx = 0.0
+
+    for m in movimientos:
+        tipo = (m.get('tipo_movimiento') or '').strip().lower()
+        es_entrada = tipo in ('entrada', 'compra')
+        contenido = m.get('contenido_neto_total')
+
+        if es_entrada:
+            entrada_u = float(contenido) if (contenido and float(contenido) > 0) else float(m.get('unidades') or 0.0)
+            entrada_mx = float(m.get('importe') or 0.0)
+
+            saldo_u += entrada_u
+            saldo_mx += entrada_mx
+            pu = saldo_mx / saldo_u if saldo_u > 0 else 0.0
+
+        elif tipo == 'salida':
+            salida_u = float(m.get('unidades') or 0.0)
+            salida_mx = salida_u * pu
+            saldo_u -= salida_u
+            saldo_mx -= salida_mx
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "item": {
+            "id": producto_base_id,
+            "nombre": producto,
+            "disponible": float(saldo_u),
+            "precio_unitario": float(pu)
+        }
+    })
+
 
 @app.route('/inventarios/comprar_mp', methods=['GET', 'POST'])
+@require_login  # ✅ AGREGAR decorador
 def comprar_mp():
+    eid = g.empresa_id  # ✅ AGREGAR esta línea
+    
     if 'rol' not in session or session.get('rol') != 'admin':
         flash('Acceso denegado.', 'danger')
         return redirect('/login')
@@ -9531,7 +10997,7 @@ def comprar_mp():
                 unidades=unidades,
                 precio_unitario=precio_unitario,
                 referencia=ref,
-                usuario_id=session.get('usuario_id')
+                empresa_id=g.empresa_id  # ✅ Parámetro correcto
             )
             flash('Compra MP registrada.', 'success')
             return redirect(url_for('mostrar_inventario'))  # o a donde prefieras
@@ -9558,7 +11024,7 @@ def vender_producto():
         producto_id = request.form['producto_id']
         unidades = float(request.form['unidades'])
 
-        costo_total = salida_peps(3, producto_id, unidades, 'Venta')
+        costo_total = salida_peps(3, producto_id, unidades, 'Venta', g.empresa_id)
         flash(f'Venta registrada. Costo total: {costo_total}', 'success')
         return redirect('/inventario')
 
@@ -9648,21 +11114,24 @@ def mostrar_inventario_mp():
         cur.execute("""
             SELECT
                 pb.id AS producto_base_id,
-                pb.id AS id,
-                pb.nombre AS producto,
-                MIN(m.id) AS mercancia_id,
+                pb.nombre AS producto_base,
                 GROUP_CONCAT(m.id) AS mercancia_ids,
-                COALESCE(MAX(i.inventario_inicial), 0) AS inventario_inicial,
-                MAX(i.aprobado) AS aprobado
+                COUNT(DISTINCT m.id) AS total_mercancias,
+                SUM(COALESCE(i.inventario_inicial, 0)) AS inventario_inicial,
+                SUM(COALESCE(i.entradas, 0)) AS entradas,
+                SUM(COALESCE(i.salidas, 0)) AS salidas,
+                SUM(COALESCE(i.entradas - i.salidas + i.inventario_inicial, 0)) AS disponible,
+                SUM(COALESCE((i.entradas - i.salidas + i.inventario_inicial) * m.precio, 0)) AS valor_inventario,
+                MAX(i.aprobado) AS aprobado,
+                MIN(m.id) AS mercancia_id
             FROM producto_base pb
-            JOIN mercancia m ON m.producto_base_id = pb.id
-            LEFT JOIN inventario i ON i.mercancia_id = m.id AND i.empresa_id = %s
+            JOIN mercancia m ON m.producto_base_id = pb.id AND m.empresa_id = %s
+            LEFT JOIN inventario_mp i ON i.mercancia_id = m.id
             WHERE pb.activo = 1 
-              AND m.tipo = 'MP'
-              AND m.empresa_id = %s
+            AND m.tipo = 'MP'
             GROUP BY pb.id, pb.nombre
             ORDER BY pb.nombre
-        """, (eid, eid))
+        """, (eid,))
         inventario = cur.fetchall()
         
         # ✅ CALCULAR SALDO FINAL CON COSTEO PROMEDIO PONDERADO (FILTRADO)
@@ -9673,33 +11142,30 @@ def mostrar_inventario_mp():
             # Query con filtro de empresa
             sql = f"""
             SELECT * FROM (
-                SELECT lc.fecha AS fecha_raw,
-                       dc.contenido_neto_total,
-                       CASE WHEN dc.contenido_neto_total>0
+                SELECT COALESCE(lc.fecha, NOW()) AS fecha_raw,
+                    dc.contenido_neto_total,
+                    CASE WHEN dc.contenido_neto_total>0
                             THEN dc.precio_total/dc.contenido_neto_total ELSE NULL END AS precio_unitario,
-                       'compra' AS tipo_movimiento
+                    'compra' AS tipo_movimiento
                 FROM detalle_compra dc
-                JOIN listado_compras lc ON dc.compra_id = lc.id
+                LEFT JOIN compras lc ON dc.compra_id = lc.id
                 WHERE dc.mercancia_id IN ({placeholders})
-                  AND dc.empresa_id = %s
-                  AND lc.empresa_id = %s
+                AND dc.empresa_id = %s
                 UNION ALL
                 SELECT im.fecha AS fecha_raw,
-                    im.unidades,
-                    im.precio_unitario,
+                    im.cantidad AS contenido_neto_total,
+                    im.costo_unitario AS precio_unitario,
                     im.tipo_movimiento
-                FROM inventario_movimientos im
-                WHERE im.mercancia_id IN ({placeholders})
-                AND im.tipo_inventario_id = 1
-                AND im.empresa_id = %s
+                FROM inventario_movimientos_mp im
+                WHERE im.mp_id IN ({placeholders})
                 AND UPPER(im.tipo_movimiento) <> 'COMPRA'
-                AND im.unidades > 0
+                AND im.cantidad > 0
                 AND im.tipo_movimiento IS NOT NULL
                 AND im.tipo_movimiento <> ''
             ) t
             ORDER BY t.fecha_raw ASC
             """
-            cur.execute(sql, mercancia_ids + [eid, eid] + mercancia_ids + [eid])
+            cur.execute(sql, mercancia_ids + [eid] + mercancia_ids)
             movimientos = cur.fetchall()
             
             # ✅ COSTEO PROMEDIO PONDERADO
@@ -9743,6 +11209,58 @@ def mostrar_inventario_mp():
         conn.close()
 
     return render_template('inventarios/mp/inventario.html', inventario=inventario)
+
+@app.route('/inventarios/mp/vinculadas/<int:producto_base_id>')
+@require_login
+def mp_vinculadas(producto_base_id):
+    """Ver mercancías vinculadas a un producto base (AJAX/Modal)"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        # Nombre del producto base
+        cur.execute("""
+            SELECT nombre FROM producto_base 
+            WHERE id = %s AND empresa_id = %s
+        """, (producto_base_id, eid))
+        producto_base = cur.fetchone()
+        
+        if not producto_base:
+            return jsonify({'error': 'Producto base no encontrado'}), 404
+        
+        # Mercancías vinculadas con inventario
+        cur.execute("""
+            SELECT 
+                m.id,
+                m.nombre,
+                m.codigo_barras,
+                m.precio,
+                u.nombre as unidad_nombre,
+                COALESCE(i.inventario_inicial, 0) as inventario_inicial,
+                COALESCE(i.entradas, 0) as entradas,
+                COALESCE(i.salidas, 0) as salidas,
+                COALESCE(i.disponible_base, 0) as disponible,
+                COALESCE(i.disponible_base * m.precio, 0) as valor
+            FROM mercancia m
+            LEFT JOIN unidades_medida u ON u.id = m.unidad_id
+            LEFT JOIN inventario_mp i ON i.mercancia_id = m.id
+            WHERE m.producto_base_id = %s 
+              AND m.empresa_id = %s
+              AND m.tipo = 'MP'
+            ORDER BY m.nombre
+        """, (eid, producto_base_id, eid))
+        mercancias = cur.fetchall()
+        
+        return jsonify({
+            'producto_base': producto_base['nombre'],
+            'mercancias': mercancias
+        })
+        
+    finally:
+        cur.close()
+        conn.close()
+
     
 @app.route('/inventarios/produccion/listar')
 @require_login
@@ -9799,7 +11317,8 @@ def inventario_productos_terminados():
 
 @app.route('/inventarios/cerrar_produccion', methods=['POST'])
 def cerrar_produccion():
-
+    eid = g.empresa_id  # ✅ AGREGAR esta línea
+    
     if 'rol' not in session or session['rol'] != 'admin':
         flash('Acceso denegado.', 'danger')
         return redirect('/login')
@@ -9807,7 +11326,7 @@ def cerrar_produccion():
     producto_id = request.form['producto_id']
 
     # Salida desde WIP (tipo 2)
-    costo_wip = salida_peps(2, producto_id, 1, 'Cierre Producción')
+    costo_wip = salida_peps(2, producto_id, 1, 'Cierre Producción', g.empresa_id)
 
     # Calcular precio unitario del producto terminado
     cantidad_producida = float(request.form['cantidad_producida'])
@@ -9926,7 +11445,7 @@ def ajustar_inventario(producto_id):
 @require_login
 def mostrar_inventario_wip():
     """Inventario WIP (Trabajo en Proceso) - FILTRADO POR EMPRESA"""
-    eid = g.empresa_id  # ✅ Empresa activa
+    eid = g.empresa_id
     
     if 'rol' not in session or session['rol'] != 'admin':
         flash('Acceso no autorizado.', 'danger')
@@ -9935,7 +11454,7 @@ def mostrar_inventario_wip():
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     try:
-        # ✅ OBTENER TODOS LOS PRODUCTOS WIP (FILTRADO POR EMPRESA)
+        # ✅ CORREGIDO: Solo 1 placeholder %s, solo 1 parámetro (eid,)
         cur.execute("""
             SELECT
                 pb.id AS producto_base_id,
@@ -9943,35 +11462,36 @@ def mostrar_inventario_wip():
                 pb.nombre AS producto,
                 MIN(m.id) AS mercancia_id,
                 GROUP_CONCAT(m.id) AS mercancia_ids,
+                COUNT(DISTINCT m.id) AS total_mercancias,
                 COALESCE(MAX(i.inventario_inicial), 0) AS inventario_inicial,
                 MAX(i.aprobado) AS aprobado
             FROM producto_base pb
             JOIN mercancia m ON m.producto_base_id = pb.id
-            LEFT JOIN inventario i ON i.mercancia_id = m.id AND i.empresa_id = %s
+            LEFT JOIN inventario_mp i ON i.mercancia_id = m.id
             WHERE pb.activo = 1 
               AND m.tipo = 'WIP'
               AND m.empresa_id = %s
             GROUP BY pb.id, pb.nombre
             ORDER BY pb.nombre
-        """, (eid, eid))
+        """, (eid,))
         inventario = cur.fetchall()
         
-        # ✅ CALCULAR SALDO FINAL CON COSTEO PROMEDIO PONDERADO
+        # CALCULAR SALDO FINAL CON COSTEO PROMEDIO PONDERADO
         for item in inventario:
             mercancia_ids = [int(x) for x in item['mercancia_ids'].split(',')]
             placeholders = ','.join(['%s'] * len(mercancia_ids))
             
-            # ✅ Query para movimientos de WIP (FILTRADO POR EMPRESA)
+            # Query movimientos WIP FILTRADO POR EMPRESA
             sql = f"""
             SELECT im.fecha AS fecha_raw,
                    im.tipo_movimiento,
-                   im.unidades,
-                   im.precio_unitario
+                   im.cantidad,
+                   im.costo_unitario
             FROM inventario_movimientos im
-            WHERE im.mercancia_id IN ({placeholders})
+            WHERE im.mp_id IN ({placeholders})
               AND im.tipo_inventario_id = 2
               AND im.empresa_id = %s
-              AND im.unidades > 0
+              AND im.cantidad > 0
               AND im.tipo_movimiento IS NOT NULL
               AND im.tipo_movimiento <> ''
             ORDER BY im.fecha ASC, im.id ASC
@@ -9979,7 +11499,7 @@ def mostrar_inventario_wip():
             cur.execute(sql, mercancia_ids + [eid])
             movimientos = cur.fetchall()
             
-            # ✅ APLICAR COSTEO PROMEDIO PONDERADO
+            # APLICAR COSTEO PROMEDIO PONDERADO
             pu = 0.0
             saldo_u = float(item['inventario_inicial'])
             saldo_mx = 0.0
@@ -10004,13 +11524,13 @@ def mostrar_inventario_wip():
                     
                 elif tipo == 'salida':
                     salida_u = float(m.get('unidades') or 0.0)
-                    salida_mx = salida_u * pu  # ✅ USA EL COSTO PROMEDIO
+                    salida_mx = salida_u * pu
                     
                     saldo_u -= salida_u
                     saldo_mx -= salida_mx
                     salidas_total += salida_u
             
-            # ✅ ASIGNAR VALORES FINALES
+            # ASIGNAR VALORES FINALES
             item['entradas'] = entradas_total
             item['salidas'] = salidas_total
             item['disponible'] = saldo_u
@@ -10022,111 +11542,122 @@ def mostrar_inventario_wip():
 
     return render_template('inventarios/wip/inventario.html', inventario=inventario)
 
+
 @app.route('/inventarios/movimientos-wip/<int:producto_base_id>')
+@require_login
 def inventario_movimientos_wip(producto_base_id):
-    """Movimientos de WIP por producto base"""
+    """Movimientos de WIP por producto base - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session:
         return redirect('/login')
 
     conn = conexion_db()
     cursor = conn.cursor(dictionary=True)
 
-    # 1) Obtener nombre del producto base y mercancías asociadas
-    cursor.execute("""
-        SELECT pb.nombre as producto_base_nombre,
-               GROUP_CONCAT(m.id) as mercancia_ids
-        FROM producto_base pb
-        LEFT JOIN mercancia m ON m.producto_base_id = pb.id
-        WHERE pb.id = %s
-        GROUP BY pb.id, pb.nombre
-    """, (producto_base_id,))
-    
-    row = cursor.fetchone()
-    if not row or not row['mercancia_ids']:
+    try:
+        # ✅ CORREGIDO: Validar que producto_base pertenece a empresa
+        cursor.execute("""
+            SELECT pb.nombre as producto_base_nombre,
+                   GROUP_CONCAT(m.id) as mercancia_ids
+            FROM producto_base pb
+            LEFT JOIN mercancia m ON m.producto_base_id = pb.id
+            WHERE pb.id = %s AND m.empresa_id = %s
+            GROUP BY pb.id, pb.nombre
+        """, (producto_base_id, eid))
+        
+        row = cursor.fetchone()
+        if not row or not row['mercancia_ids']:
+            flash('Producto no encontrado.', 'warning')
+            return redirect(url_for('mostrar_inventario_wip'))
+        
+        producto = row['producto_base_nombre']
+        mercancia_ids = [int(x) for x in row['mercancia_ids'].split(',')]
+        
+        almacen_id = int(request.args.get('almacen', 2))  # Default 2 para WIP
+
+        # ✅ CORREGIDO: Query movimientos CON FILTRO DE EMPRESA
+        placeholders = ','.join(['%s'] * len(mercancia_ids))
+        cursor.execute(f"""
+            SELECT im.fecha AS fecha_raw, 
+                   DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
+                   im.referencia AS documento, 
+                   '' AS fuente, 
+                   im.cantidad,
+                   NULL AS contenido_neto_total, 
+                   im.costo_unitario,
+                   (im.cantidad*im.costo_unitario) AS importe, 
+                   im.tipo_movimiento
+            FROM inventario_movimientos im
+            WHERE im.mp_id IN ({placeholders}) 
+              AND im.tipo_inventario_id = %s
+              AND im.empresa_id = %s
+            ORDER BY im.fecha ASC, im.id ASC
+        """, mercancia_ids + [almacen_id, eid])
+        movimientos = cursor.fetchall()
+
+        # Construir tablas con costeo promedio
+        rows = []
+        pu = 0.0
+        saldo_u = 0.0
+        saldo_mx = 0.0
+        
+        for m in movimientos:
+            tipo = (m.get('tipo_movimiento') or '').strip().lower()
+            es_entrada = tipo in ('entrada', 'compra')
+            
+            if es_entrada:
+                entrada_u = float(m.get('unidades') or 0.0)
+                pu_entrada = float(m.get('precio_unitario') or 0.0)
+                entrada_mx = entrada_u * pu_entrada
+                
+                saldo_u += entrada_u
+                saldo_mx += entrada_mx
+                
+                pu = saldo_mx / saldo_u if saldo_u > 0 else 0.0
+                
+                salida_u = 0.0
+                salida_mx = 0.0
+            
+            elif tipo == 'salida':
+                salida_u = float(m.get('unidades') or 0.0)
+                salida_mx = salida_u * pu
+                
+                saldo_u -= salida_u
+                saldo_mx -= salida_mx
+                
+                entrada_u = 0.0
+                entrada_mx = 0.0
+            else:
+                entrada_u = salida_u = entrada_mx = salida_mx = 0.0
+                
+            rows.append({
+                "fecha": m.get("fecha_fmt"),
+                "documento": m.get("documento"),
+                "fuente": m.get("fuente", ""),
+                "entrada_u": entrada_u, "salida_u": salida_u, "saldo_u": saldo_u,
+                "entrada_mx": entrada_mx, "salida_mx": salida_mx, "saldo_mx": saldo_mx,
+                "pu": pu,
+            })
+
+        tabla_unidades = [{"fecha": r["fecha"], "documento": r["documento"], "fuente": r["fuente"],
+                           "entrada": r["entrada_u"], "salida": r["salida_u"], "saldo": r["saldo_u"]} for r in rows]
+        tabla_pesos = [{"fecha": r["fecha"], "documento": r["documento"], "fuente": r["fuente"],
+                        "entrada": r["entrada_mx"], "salida": r["salida_mx"], "saldo": r["saldo_mx"], "pu": r["pu"]} for r in rows]
+
+        # Totales
+        total_entradas_u = sum(r["entrada_u"] for r in rows)
+        total_salidas_u = sum(r["salida_u"] for r in rows)
+        total_entradas_mx = sum(r["entrada_mx"] for r in rows)
+        total_salidas_mx = sum(r["salida_mx"] for r in rows)
+        
+        saldo_final_u = rows[-1]["saldo_u"] if rows else 0.0
+        saldo_final_mx = rows[-1]["saldo_mx"] if rows else 0.0
+        pu_final = rows[-1]["pu"] if rows else 0.0
+        
+    finally:
         cursor.close()
         conn.close()
-        flash('Producto no encontrado.', 'warning')
-        return redirect(url_for('mostrar_inventario_wip'))
-    
-    producto = row['producto_base_nombre']
-    mercancia_ids = [int(x) for x in row['mercancia_ids'].split(',')]
-    
-    almacen_id = int(request.args.get('almacen', 2))  # Default 2 para WIP
-
-    # 2) Query movimientos WIP
-    placeholders = ','.join(['%s'] * len(mercancia_ids))
-    cursor.execute(f"""
-        SELECT im.fecha AS fecha_raw, DATE_FORMAT(im.fecha,'%d/%b/%Y') AS fecha_fmt,
-               im.referencia AS documento, '' AS fuente, im.unidades,
-               NULL AS contenido_neto_total, im.precio_unitario,
-               (im.unidades*im.precio_unitario) AS importe, im.tipo_movimiento
-        FROM inventario_movimientos im
-        WHERE im.mercancia_id IN ({placeholders}) AND im.tipo_inventario_id = %s
-        ORDER BY im.fecha ASC, im.id ASC
-    """, mercancia_ids + [almacen_id])
-    movimientos = cursor.fetchall()
-
-    # 3) Construir tablas con costeo promedio
-    rows = []
-    pu = 0.0
-    saldo_u = 0.0
-    saldo_mx = 0.0
-    
-    for m in movimientos:
-        tipo = (m.get('tipo_movimiento') or '').strip().lower()
-        es_entrada = tipo in ('entrada', 'compra')
-        
-        if es_entrada:
-            entrada_u = float(m.get('unidades') or 0.0)
-            pu_entrada = float(m.get('precio_unitario') or 0.0)
-            entrada_mx = entrada_u * pu_entrada
-            
-            saldo_u += entrada_u
-            saldo_mx += entrada_mx
-            
-            pu = saldo_mx / saldo_u if saldo_u > 0 else 0.0
-            
-            salida_u = 0.0
-            salida_mx = 0.0
-        
-        elif tipo == 'salida':
-            salida_u = float(m.get('unidades') or 0.0)
-            salida_mx = salida_u * pu
-            
-            saldo_u -= salida_u
-            saldo_mx -= salida_mx
-            
-            entrada_u = 0.0
-            entrada_mx = 0.0
-        else:
-            entrada_u = salida_u = entrada_mx = salida_mx = 0.0
-            
-        rows.append({
-            "fecha": m.get("fecha_fmt"),
-            "documento": m.get("documento"),
-            "fuente": m.get("fuente", ""),
-            "entrada_u": entrada_u, "salida_u": salida_u, "saldo_u": saldo_u,
-            "entrada_mx": entrada_mx, "salida_mx": salida_mx, "saldo_mx": saldo_mx,
-            "pu": pu,
-        })
-
-    tabla_unidades = [{"fecha": r["fecha"], "documento": r["documento"], "fuente": r["fuente"],
-                       "entrada": r["entrada_u"], "salida": r["salida_u"], "saldo": r["saldo_u"]} for r in rows]
-    tabla_pesos = [{"fecha": r["fecha"], "documento": r["documento"], "fuente": r["fuente"],
-                    "entrada": r["entrada_mx"], "salida": r["salida_mx"], "saldo": r["saldo_mx"], "pu": r["pu"]} for r in rows]
-
-    # Totales
-    total_entradas_u = sum(r["entrada_u"] for r in rows)
-    total_salidas_u = sum(r["salida_u"] for r in rows)
-    total_entradas_mx = sum(r["entrada_mx"] for r in rows)
-    total_salidas_mx = sum(r["salida_mx"] for r in rows)
-    
-    saldo_final_u = rows[-1]["saldo_u"] if rows else 0.0
-    saldo_final_mx = rows[-1]["saldo_mx"] if rows else 0.0
-    pu_final = rows[-1]["pu"] if rows else 0.0
-
-    cursor.close()
-    conn.close()
     
     return render_template('inventarios/inventario_movimientos.html',
                            producto=producto,
@@ -10141,8 +11672,13 @@ def inventario_movimientos_wip(producto_base_id):
                            pu_final=pu_final,
                            back_endpoint='mostrar_inventario_wip')
 
+
 @app.route('/inventarios/produccion', methods=['GET', 'POST'])
+@require_login
 def crear_produccion():
+    """Crear producción - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
         flash('Acceso denegado.', 'danger')
         return redirect('/login')
@@ -10150,204 +11686,268 @@ def crear_produccion():
     if request.method == 'POST':
         producto_id = request.form['producto_id']
 
-        # Convertir los campos usos[ID] en lista de diccionarios
-        materiales = []
-        for key, value in request.form.items():
-            if key.startswith("usos[") and value.strip():
-                mercancia_id = key.split("[")[1].strip("]")
-                unidades = float(value)
-                materiales.append({
-                    "mercancia_id": mercancia_id,
-                    "unidades": unidades
-                })
+        # ✅ CORREGIDO: Validar que producto pertenece a empresa
+        conn = conexion_db()
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("""
+                SELECT id FROM mercancia 
+                WHERE id=%s AND empresa_id=%s
+            """, (producto_id, eid))
+            if not cursor.fetchone():
+                flash('Producto no válido.', 'danger')
+                return redirect(url_for('crear_produccion'))
 
-        # Calcular costo total y registrar salida de cada materia prima
-        costo_total = 0
-        for mat in materiales:
-            costo_total += salida_peps(
-                1,  # ID de almacén origen
-                mat['mercancia_id'],
-                mat['unidades'],
-                'Producción WIP'
+            # Convertir los campos usos[ID] en lista de diccionarios
+            materiales = []
+            for key, value in request.form.items():
+                if key.startswith("usos[") and value.strip():
+                    mercancia_id = key.split("[")[1].strip("]")
+                    unidades = float(value)
+                    materiales.append({
+                        "mercancia_id": mercancia_id,
+                        "unidades": unidades
+                    })
+
+            # Calcular costo total y registrar salida de cada materia prima
+            costo_total = 0
+            for mat in materiales:
+                # ✅ NOTA: La función salida_peps debe también validar empresa
+                costo_total += salida_peps(
+                    1,  # ID de almacén origen
+                    mat['mercancia_id'],
+                    mat['unidades'],
+                    'Producción WIP',
+                    eid  # ✅ Pasar empresa_id
+                )
+
+            # Registrar entrada del producto terminado en WIP
+            # ✅ NOTA: La función registrar_movimiento debe también validar empresa
+            registrar_movimiento(
+                2,  # ID de almacén destino
+                producto_id,
+                'entrada',
+                1,  # Cantidad fabricada (puedes hacer dinámico si lo agregas al form)
+                costo_total,
+                'Inicio Producción',
+                eid  # ✅ Pasar empresa_id
             )
 
-        # Registrar entrada del producto terminado en WIP
-        registrar_movimiento(
-            2,  # ID de almacén destino
-            producto_id,
-            'entrada',
-            1,  # Cantidad fabricada (puedes hacer dinámico si lo agregas al form)
-            costo_total,
-            'Inicio Producción'
-        )
-
-        flash('Producción iniciada', 'success')
-        return redirect('/inventarios/produccion/listar')
-
-    # GET: renderiza la vista con datos
-    return render_template('inventarios/produccion.html')
-
-
-@app.route('/production/<int:orden_id>')
-@require_login
-def orden_detalle(orden_id):
-    eid = g.empresa_id
-    
-    conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
-
-    try:
-        # Datos principales VALIDANDO EMPRESA
-        cur.execute("""
-            SELECT op.id, op.fecha_creacion, op.cantidad_programada, op.estado,
-                   op.observaciones, m.nombre AS producto
-            FROM orden_produccion op
-            JOIN mercancia m ON op.producto_id = m.id
-            WHERE op.id = %s AND op.empresa_id = %s
-        """, (orden_id, eid))
-        orden = cur.fetchone()
-
-        if not orden:
-            flash('Orden de producción no encontrada.', 'warning')
-            return redirect(url_for('list_production'))
-
-        # Fases asociadas
-        cur.execute("""
-            SELECT a.nombre AS area, f.descripcion, f.duracion, f.estado
-            FROM orden_fase f
-            JOIN areas_produccion a ON f.area_id = a.id
-            WHERE f.orden_id = %s AND a.empresa_id = %s
-            ORDER BY f.id ASC
-        """, (orden_id, eid))
-        fases = cur.fetchall()
-
-        # Materias primas
-        cur.execute("""
-            SELECT mp.nombre, om.cantidad_usada, om.costo_unitario
-            FROM orden_material om
-            JOIN mercancia mp ON om.mp_id = mp.id
-            WHERE om.orden_id = %s AND mp.empresa_id = %s
-            ORDER BY mp.nombre
-        """, (orden_id, eid))
-        materiales = cur.fetchall()
-
-    finally:
-        cur.close()
-        conn.close()
-
-    return render_template(
-        'inventarios/WIP/orden_detalle.html',
-        orden=orden,
-        fases=fases,
-        materiales=materiales
-    )
-
-@app.route('/production/new', methods=['GET', 'POST'])
-@require_login
-def new_production():
-    eid = g.empresa_id
-    
-    if request.method == 'POST':
-        producto_id = (request.form.get('pt_id') or request.form.get('finished_product_id') or '').strip()
-        cantidad_planificada = (request.form.get('planned_quantity') or '').strip()
-        fecha = (request.form.get('date') or '').strip()
-
-        if not producto_id.isdigit():
-            flash('Selecciona un Producto Terminado válido del listado.', 'danger')
-            return redirect(url_for('new_production'))
-        if not fecha:
-            flash('La fecha es obligatoria.', 'danger')
-            return redirect(url_for('new_production'))
-        try:
-            cantidad = float(cantidad_planificada)
-            if cantidad <= 0:
-                raise ValueError()
-        except Exception:
-            flash('La cantidad planificada debe ser mayor que 0.', 'danger')
-            return redirect(url_for('new_production'))
-
-        conn = conexion_db()
-        cur = conn.cursor(dictionary=True)
-        try:
-            # Verificar producto PERTENECE A EMPRESA
-            cur.execute("""
-                SELECT 1 FROM mercancia 
-                WHERE id=%s AND tipo='PT' AND empresa_id=%s 
-                LIMIT 1
-            """, (producto_id, eid))
-            if not cur.fetchone():
-                flash('El producto seleccionado no existe o no es de tipo PT.', 'danger')
-                return redirect(url_for('new_production'))
-
-            # Verificar proceso definido
-            cur.execute("""
-                SELECT 1 FROM procesos 
-                WHERE pt_id=%s AND activo=1 AND empresa_id=%s 
-                LIMIT 1
-            """, (producto_id, eid))
-            if not cur.fetchone():
-                flash('Define el proceso de producción antes de crear la orden.', 'warning')
-                return redirect(url_for('recetas_proceso', pt_id=producto_id))
-
-            # Crear orden CON EMPRESA
-            cur.execute("""
-                INSERT INTO orden_produccion (empresa_id, producto_id, cantidad_programada, fecha_creacion, estado)
-                VALUES (%s, %s, %s, %s, 'pendiente')
-            """, (eid, producto_id, cantidad, fecha))
-            conn.commit()
-
-            flash('Orden de producción creada correctamente.', 'success')
-            return redirect(url_for('list_production'))
-
-        except Exception as e:
-            conn.rollback()
-            flash(f'Error al crear la orden: {e}', 'danger')
-            return redirect(url_for('new_production'))
+            flash('Producción iniciada', 'success')
+            return redirect('/inventarios/produccion/listar')
+            
         finally:
-            cur.close()
+            cursor.close()
             conn.close()
 
-    # GET - Mostrar formulario
+    # GET: renderiza la vista con datos FILTRADOS
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
-    cur.execute("""
-        SELECT id, nombre
-        FROM mercancia
-        WHERE tipo='PT' AND empresa_id=%s
-        ORDER BY nombre
-    """, (eid,))
-    productos = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    return render_template('inventarios/WIP/orden_nueva.html', productos=productos)
-
-@app.route('/production')
-@require_login
-def list_production():
-    eid = g.empresa_id
-    
-    conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
-
+    cursor = conn.cursor(dictionary=True)
     try:
-        cur.execute("""
-            SELECT op.id,
-                   op.fecha_creacion,
-                   m.nombre AS producto,
-                   op.cantidad_programada,
-                   op.estado
-            FROM orden_produccion op
-            JOIN mercancia m ON op.producto_id = m.id
-            WHERE op.empresa_id = %s
-            ORDER BY op.fecha_creacion DESC, op.id DESC
+        cursor.execute("""
+            SELECT id, nombre FROM mercancia 
+            WHERE empresa_id=%s AND activo=1 
+            ORDER BY nombre
         """, (eid,))
-        ordenes = cur.fetchall()
+        productos = cursor.fetchall()
     finally:
-        cur.close()
+        cursor.close()
         conn.close()
+        
+    return render_template('inventarios/produccion.html', productos=productos)
 
-    return render_template('inventarios/WIP/orden_list.html', ordenes=ordenes)
+#@app.route('/production/<int:orden_id>')
+#@require_login
+#def orden_detalle(orden_id):
+#    '''Detalle de orden de producción - VALIDANDO EMPRESA'''
+#    eid = g.empresa_id
+#    
+#    conn = conexion_db()
+#    cur = conn.cursor(dictionary=True)
+
+#    try:
+#        # Datos principales VALIDANDO EMPRESA
+#        cur.execute("""
+#            SELECT op.id, op.fecha_creacion, op.cantidad_programada, op.estado,
+#                   op.observaciones, m.nombre AS producto
+#            FROM orden_produccion op
+#            JOIN mercancia m ON op.producto_id = m.id
+#            WHERE op.id = %s AND op.empresa_id = %s
+#        """, (orden_id, eid))
+#        orden = cur.fetchone()
+
+#        if not orden:
+#            flash('Orden de producción no encontrada.', 'warning')
+#            return redirect(url_for('list_production'))
+
+        # Fases asociadas
+#        cur.execute("""
+#            SELECT a.nombre AS area, f.descripcion, f.duracion, f.estado
+#            FROM orden_fase f
+#            JOIN areas_produccion a ON f.area_id = a.id
+#            WHERE f.orden_id = %s AND a.empresa_id = %s
+#            ORDER BY f.id ASC
+#        """, (orden_id, eid))
+#        fases = cur.fetchall()
+
+        # Materias primas
+#        cur.execute("""
+#            SELECT mp.nombre, om.cantidad_usada, om.costo_unitario
+#            FROM orden_material om
+#            JOIN mercancia mp ON om.mp_id = mp.id
+#            WHERE om.orden_id = %s AND mp.empresa_id = %s
+#            ORDER BY mp.nombre
+#        """, (orden_id, eid))
+#        materiales = cur.fetchall()
+
+#    finally:
+#        cur.close()
+#        conn.close()
+
+#    return render_template(
+#        'inventarios/WIP/orden_detalle.html',
+#        orden=orden,
+#        fases=fases,
+#        materiales=materiales
+#    )
+
+
+#@app.route('/production/new', methods=['GET', 'POST'])
+#@require_login
+#def new_production():
+#    """Nueva orden de producción - VALIDANDO EMPRESA"""
+#    eid = g.empresa_id
+    
+#    if request.method == 'POST':
+#        producto_id = (request.form.get('pt_id') or request.form.get('finished_product_id') or '').strip()
+#        cantidad_planificada = (request.form.get('planned_quantity') or '').strip()
+#        fecha = (request.form.get('date') or '').strip()
+
+#        if not producto_id.isdigit():
+#            flash('Selecciona un Producto Terminado válido del listado.', 'danger')
+#            return redirect(url_for('new_production'))
+#        if not fecha:
+#            flash('La fecha es obligatoria.', 'danger')
+#            return redirect(url_for('new_production'))
+#        try:
+#            cantidad = float(cantidad_planificada)
+#            if cantidad <= 0:
+#                raise ValueError()
+#        except Exception:
+#            flash('La cantidad planificada debe ser mayor que 0.', 'danger')
+#            return redirect(url_for('new_production'))
+
+#        conn = conexion_db()
+#        cur = conn.cursor(dictionary=True)
+#        try:
+            # Verificar producto PERTENECE A EMPRESA
+#            cur.execute("""
+#                SELECT 1 FROM mercancia 
+#                WHERE id=%s AND tipo='PT' AND empresa_id=%s 
+#                LIMIT 1
+#            """, (producto_id, eid))
+#            if not cur.fetchone():
+#                flash('El producto seleccionado no existe o no es de tipo PT.', 'danger')
+#                return redirect(url_for('new_production'))
+
+            # Verificar proceso definido
+#            cur.execute("""
+#                SELECT 1 FROM procesos 
+#                WHERE producto_terminado_id=%s AND activo=1 AND empresa_id=%s 
+#                LIMIT 1
+#            """, (producto_id, eid))
+#            if not cur.fetchone():
+#                flash('Define el proceso de producción antes de crear la orden.', 'warning')
+#                return redirect(url_for('recetas_proceso', pt_id=producto_id))
+
+            # Crear orden CON EMPRESA
+#            cur.execute("""
+#                INSERT INTO orden_produccion (empresa_id, producto_id, cantidad_programada, fecha_creacion, estado)
+#                VALUES (%s, %s, %s, %s, 'pendiente')
+#            """, (eid, producto_id, cantidad, fecha))
+#            conn.commit()
+
+#            flash('Orden de producción creada correctamente.', 'success')
+#            return redirect(url_for('list_production'))
+
+#        except Exception as e:
+#            conn.rollback()
+#            flash(f'Error al crear la orden: {e}', 'danger')
+#            return redirect(url_for('new_production'))
+#        finally:
+#            cur.close()
+#            conn.close()
+
+    # GET - Mostrar formulario con productos FILTRADOS
+#    conn = conexion_db()
+#    cur = conn.cursor(dictionary=True)
+#    cur.execute("""
+#        SELECT id, nombre
+#        FROM mercancia
+#        WHERE tipo='PT' AND empresa_id=%s
+#        ORDER BY nombre
+#    """, (eid,))
+#    productos = cur.fetchall()
+#    cur.close()
+#    conn.close()
+
+#    return render_template('inventarios/WIP/orden_nueva.html', productos=productos)
+
+
+ 
+#@app.route('/production')
+#@require_login
+#def list_production():
+#    """Lista de órdenes de producción - FILTRADO POR EMPRESA"""
+#    eid = g.empresa_id
+    
+#    conn = conexion_db()
+#    cur = conn.cursor(dictionary=True)
+
+#    try:
+#        cur.execute("""
+#            SELECT op.id,
+#                   op.fecha_creacion,
+#                   m.nombre AS producto,
+#                   op.cantidad_programada,
+#                   op.estado
+#            FROM orden_produccion op
+#            JOIN mercancia m ON op.producto_id = m.id
+#            WHERE op.empresa_id = %s
+#            ORDER BY op.fecha_creacion DESC, op.id DESC
+#        """, (eid,))
+#        ordenes = cur.fetchall()
+#    finally:
+#        cur.close()
+#        conn.close()
+
+#    return render_template('inventarios/WIP/orden_list.html', ordenes=ordenes)
+
+
+    # eid = g.empresa_id
+    
+    # conn = conexion_db()
+    # cur = conn.cursor(dictionary=True)
+
+    # try:
+    #     cur.execute("""
+    #         SELECT op.id,
+    #                op.fecha_creacion,
+    #                m.nombre AS producto,
+    #                op.cantidad_programada,
+    #                op.estado
+    #         FROM orden_produccion op
+    #         JOIN mercancia m ON op.producto_id = m.id
+    #         WHERE op.empresa_id = %s
+    #         ORDER BY op.fecha_creacion DESC, op.id DESC
+    #     """, (eid,))
+    #     ordenes = cur.fetchall()
+    # finally:
+    #     cur.close()
+    #     conn.close()
+
+    # return render_template('inventarios/WIP/orden_list.html', ordenes=ordenes)
+
 
 def costo_promedio_mp(cur, mercancia_id):
     cur.execute("""
@@ -10376,14 +11976,14 @@ def consumir_mp_paso(cur, orden_id, paso_id):
 
         # SALIDA MP
         cur.execute("""
-          INSERT INTO inventario_movimientos
+          INSERT INTO inventario_movimientos_mp
           (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
           VALUES (1, %s, 'SALIDA', %s, %s, %s, CURDATE())
         """, (insumo, unidades, pu, f"OP{orden_id}-PASO{paso_id}"))
 
         # ENTRADA WIP
         cur.execute("""
-          INSERT INTO inventario_movimientos
+          INSERT INTO inventario_movimientos_mp
           (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
           VALUES (2, %s, 'ENTRADA', %s, %s, %s, CURDATE())
         """, (insumo, unidades, pu, f"OP{orden_id}-PASO{paso_id}"))
@@ -10403,7 +12003,7 @@ def cerrar_op(cur, orden_id):
       SELECT 
         COALESCE(SUM(CASE WHEN tipo_movimiento='ENTRADA' THEN unidades*precio_unitario END),0) -
         COALESCE(SUM(CASE WHEN tipo_movimiento='SALIDA'  THEN unidades*precio_unitario END),0) AS costo
-      FROM inventario_movimientos
+      FROM inventario_movimientos_mp
       WHERE tipo_inventario_id=2 AND referencia LIKE %s
     """, (f"OP{orden_id}%",))
     costo_wip = float(cur.fetchone()['costo'] or 0)
@@ -10411,14 +12011,14 @@ def cerrar_op(cur, orden_id):
 
     # SALIDA WIP (total unidades efectivas)#
     cur.execute("""
-      INSERT INTO inventario_movimientos
+      INSERT INTO inventario_movimientos_mp
       (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
       VALUES (2, %s, 'SALIDA', %s, %s, %s, CURDATE())
     """, (pt_id, qty_pt, pu_pt, f"OP{orden_id}-CIERRE"))
 
     # ENTRADA PT#
     cur.execute("""
-      INSERT INTO inventario_movimientos
+      INSERT INTO inventario_movimientos_mp
       (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
       VALUES (3, %s, 'ENTRADA', %s, %s, %s, CURDATE())
     """, (pt_id, qty_pt, pu_pt, f"OP{orden_id}-CIERRE"))
@@ -10429,71 +12029,102 @@ def cerrar_op(cur, orden_id):
 # 3. UTILITARIOS (mantener, solo ajustar nombres de tabla)
 # ======================================================
 
-def costo_promedio_mp(cur, mercancia_id):
+def costo_promedio_mp(cur, mercancia_id, empresa_id):
+    """Calcula el costo promedio de una MP - VALIDANDO EMPRESA"""
+    # ✅ CORREGIDO: Tabla correcta + filtro de empresa
     cur.execute("""
-      SELECT SUM(CASE WHEN tipo_movimiento IN ('COMPRA','ENTRADA') THEN unidades*precio_unitario ELSE 0 END) /
-             NULLIF(SUM(CASE WHEN tipo_movimiento IN ('COMPRA','ENTRADA') THEN unidades ELSE 0 END),0)
-      AS pu
-      FROM inventario_movimientos
-      WHERE mercancia_id=%s AND tipo_inventario_id=1
-    """, (mercancia_id,))
+        SELECT 
+            SUM(CASE WHEN tipo_movimiento IN ('COMPRA','ENTRADA') THEN unidades*precio_unitario ELSE 0 END) /
+            NULLIF(SUM(CASE WHEN tipo_movimiento IN ('COMPRA','ENTRADA') THEN unidades ELSE 0 END),0) AS pu
+        FROM inventario_movimientos
+        WHERE mercancia_id=%s 
+          AND tipo_inventario_id=1 
+          AND empresa_id=%s
+    """, (mercancia_id, empresa_id))
     r = cur.fetchone()
     return float(r['pu'] or 0) or 0.0
 
 
-def consumir_mp_paso(cur, orden_id, fase_id):
-    cur.execute("""SELECT op.cantidad_programada, pf.batch_size
-                   FROM orden_produccion op
-                   JOIN orden_fase pf ON pf.orden_id=op.id
-                   WHERE op.id=%s""", (orden_id,))
+def consumir_mp_paso(cur, orden_id, fase_id, empresa_id):
+    """Consume materiales de un paso - VALIDANDO EMPRESA"""
+    # ✅ CORREGIDO: Validar que orden pertenece a empresa
+    cur.execute("""
+        SELECT op.cantidad_programada, pf.batch_size
+        FROM orden_produccion op
+        JOIN orden_fase pf ON pf.orden_id=op.id
+        WHERE op.id=%s AND op.empresa_id=%s
+    """, (orden_id, empresa_id))
     ord_ = cur.fetchone()
+    
+    if not ord_:
+        return
+        
     factor = float(ord_['cantidad_programada']) / float(ord_['batch_size'])
 
-    cur.execute("""SELECT mp_id, cantidad_base 
-                   FROM orden_material WHERE fase_id=%s""", (fase_id,))
+    # ✅ CORREGIDO: Validar materiales pertenecen a empresa
+    cur.execute("""
+        SELECT om.mp_id, om.cantidad_base 
+        FROM orden_material om
+        JOIN mercancia m ON m.id = om.mp_id
+        WHERE om.fase_id=%s AND m.empresa_id=%s
+    """, (fase_id, empresa_id))
+    
     for mat in cur.fetchall():
         insumo = mat['mp_id']
         unidades = float(mat['cantidad_base']) * factor
-        pu = costo_promedio_mp(cur, insumo)
+        pu = costo_promedio_mp(cur, insumo, empresa_id)
 
-        # SALIDA MP
+        # SALIDA MP - CON EMPRESA_ID
         cur.execute("""
-          INSERT INTO inventario_movimientos
-          (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
-          VALUES (1, %s, 'SALIDA', %s, %s, %s, CURDATE())
-        """, (insumo, unidades, pu, f"OP{orden_id}-FASE{fase_id}"))
+            INSERT INTO inventario_movimientos
+            (empresa_id, tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
+            VALUES (%s, 1, %s, 'SALIDA', %s, %s, %s, CURDATE())
+        """, (empresa_id, insumo, unidades, pu, f"OP{orden_id}-FASE{fase_id}"))
 
-        # ENTRADA WIP
+        # ENTRADA WIP - CON EMPRESA_ID
         cur.execute("""
-          INSERT INTO inventario_movimientos
-          (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
-          VALUES (2, %s, 'ENTRADA', %s, %s, %s, CURDATE())
-        """, (insumo, unidades, pu, f"OP{orden_id}-FASE{fase_id}"))
+            INSERT INTO inventario_movimientos
+            (empresa_id, tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
+            VALUES (%s, 2, %s, 'ENTRADA', %s, %s, %s, CURDATE())
+        """, (empresa_id, insumo, unidades, pu, f"OP{orden_id}-FASE{fase_id}"))
 
 
-def cerrar_op(cur, orden_id):
-    cur.execute("""SELECT op.producto_id, op.cantidad_programada, SUM(pw.unidades*pw.precio_unitario) AS costo_wip
-                   FROM orden_produccion op
-                   JOIN inventario_movimientos pw ON pw.referencia LIKE %s
-                   WHERE op.id=%s
-                """, (f"OP{orden_id}%", orden_id))
+def cerrar_op(cur, orden_id, empresa_id):
+    """Cierra una orden de producción (legacy) - VALIDANDO EMPRESA"""
+    # ✅ NOTA: Esta función parece legacy, pero la corrijo por si acaso
+    # ✅ CORREGIDO: Validar orden y calcular costo CON EMPRESA
+    cur.execute("""
+        SELECT op.producto_id, op.cantidad_programada,
+               COALESCE(SUM(CASE WHEN im.tipo_movimiento='ENTRADA' THEN im.cantidad*im.costo_unitario END),0)
+               - COALESCE(SUM(CASE WHEN im.tipo_movimiento='SALIDA' THEN im.cantidad*im.costo_unitario END),0) AS costo_wip
+        FROM orden_produccion op
+        LEFT JOIN inventario_movimientos im ON im.referencia LIKE %s AND im.empresa_id = %s
+        WHERE op.id=%s AND op.empresa_id=%s
+        GROUP BY op.id, op.producto_id, op.cantidad_programada
+    """, (f"OP{orden_id}%", empresa_id, orden_id, empresa_id))
+    
     r = cur.fetchone()
+    if not r:
+        return
+        
     pt_id = r['producto_id']
     qty_pt = float(r['cantidad_programada'])
     costo_total = float(r['costo_wip'] or 0)
     pu_pt = (costo_total/qty_pt) if qty_pt > 0 else 0
 
+    # SALIDA WIP - CON EMPRESA_ID
     cur.execute("""
-      INSERT INTO inventario_movimientos
-      (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
-      VALUES (2, %s, 'SALIDA', %s, %s, %s, CURDATE())
-    """, (pt_id, qty_pt, pu_pt, f"OP{orden_id}-CIERRE"))
+        INSERT INTO inventario_movimientos
+        (empresa_id, tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
+        VALUES (%s, 2, %s, 'SALIDA', %s, %s, %s, CURDATE())
+    """, (empresa_id, pt_id, qty_pt, pu_pt, f"OP{orden_id}-CIERRE"))
 
+    # ENTRADA PT - CON EMPRESA_ID
     cur.execute("""
-      INSERT INTO inventario_movimientos
-      (tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
-      VALUES (3, %s, 'ENTRADA', %s, %s, %s, CURDATE())
-    """, (pt_id, qty_pt, pu_pt, f"OP{orden_id}-CIERRE"))
+        INSERT INTO inventario_movimientos
+        (empresa_id, tipo_inventario_id, mercancia_id, tipo_movimiento, unidades, precio_unitario, referencia, fecha)
+        VALUES (%s, 3, %s, 'ENTRADA', %s, %s, %s, CURDATE())
+    """, (empresa_id, pt_id, qty_pt, pu_pt, f"OP{orden_id}-CIERRE"))
 
 
 @app.route('/production/<int:orden_id>/close', methods=['POST'])
@@ -10567,6 +12198,8 @@ def cerrar_orden_produccion(orden_id):
         cur.close()
         conn.close()
 
+
+
 # ---------- PROCESOS ----------
 # ---------- /admin/procesos ----------
 
@@ -10578,6 +12211,7 @@ def cerrar_orden_produccion(orden_id):
 @app.route('/admin/procesos/<int:id>', methods=['GET','POST'], endpoint='admin_proceso_detalle')
 @require_login
 def admin_proceso_detalle(id):
+    """Detalle de proceso - VALIDANDO EMPRESA"""
     eid = g.empresa_id
     
     conn = conexion_db()
@@ -10684,16 +12318,17 @@ def admin_proceso_detalle(id):
                 ROUND(pi.merma_pct, 2) AS merma_pct,
                 m.id AS mercancia_id,
                 m.nombre AS mercancia,
-                (SELECT ROUND(mov.costo_unitario, 2)
-                 FROM movimientos_inventario mov
-                 WHERE mov.producto_id = pi.mercancia_id
-                 ORDER BY mov.fecha DESC, mov.id DESC
+                (SELECT ROUND(im.costo_unitario, 2)
+                 FROM inventario_movimientos im
+                 WHERE im.mp_id = pi.mercancia_id
+                   AND im.empresa_id = %s
+                 ORDER BY im.fecha DESC, im.id DESC
                  LIMIT 1) AS costo_ref
             FROM procesos_insumos pi
             JOIN mercancia m ON m.id = pi.mercancia_id
             WHERE pi.proceso_id = %s AND pi.empresa_id = %s
             ORDER BY pi.id
-        """, (id, eid))
+        """, (eid, id, eid))
         componentes = cur.fetchall()
 
         # Operaciones FILTRADAS
@@ -10733,32 +12368,58 @@ def admin_proceso_detalle(id):
 
 # APIs ligeras
 @app.route('/admin/operaciones/reordenar', methods=['POST'])
+@require_login
 def admin_operaciones_reordenar():
+    """Reordenar operaciones - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
-        return jsonify({'ok': False}), 403
-    data = request.get_json(force=True)  # {'pares': [{'id':1,'orden':1}, ...]}
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+        
+    data = request.get_json(force=True)
     conn = conexion_db()
-    cur = conn.cursor()
+    cur = conn.cursor(dictionary=True)
     try:
         for par in data.get('pares', []):
-            cur.execute("UPDATE procesos_etapas SET orden=%s WHERE id=%s", (par['orden'], par['id']))
+            # ✅ CORREGIDO: Validar que operación pertenece a empresa
+            cur.execute("""
+                UPDATE procesos_etapas 
+                SET orden=%s 
+                WHERE id=%s AND empresa_id=%s
+            """, (par['orden'], par['id'], eid))
         conn.commit()
         return jsonify({'ok': True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
     finally:
         cur.close()
         conn.close()
 
 @app.route('/admin/checklist/toggle', methods=['POST'])
+@require_login
 def admin_checklist_toggle():
+    """Toggle checklist - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
-        return jsonify({'ok': False}), 403
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+        
     cid = request.form['check_id']
     conn = conexion_db()
     cur = conn.cursor()
     try:
-        cur.execute("UPDATE procesos_etapas_checklist SET done = 1 - done WHERE id=%s", (cid,))
+        # ✅ CORREGIDO: Validar que checklist pertenece a empresa
+        cur.execute("""
+            UPDATE procesos_etapas_checklist 
+            SET done = 1 - done 
+            WHERE id=%s AND empresa_id=%s
+        """, (cid, eid))
         conn.commit()
         return jsonify({'ok': True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
     finally:
         cur.close()
         conn.close()
@@ -10766,6 +12427,7 @@ def admin_checklist_toggle():
 @app.route('/admin/procesos', methods=['GET','POST'], endpoint='admin_procesos')
 @require_login
 def admin_procesos():
+    """Lista y creación de procesos - FILTRADO POR EMPRESA"""
     eid = g.empresa_id
     
     conn = conexion_db()
@@ -10875,16 +12537,17 @@ def admin_procesos():
         cur.execute("""
             SELECT pi.id, pi.proceso_id, pi.unidad, pi.cantidad, pi.merma_pct,
                    m.id AS mercancia_id, m.nombre AS mercancia,
-                   (SELECT mi.costo_unitario
-                      FROM movimientos_inventario mi
-                     WHERE mi.producto_id = pi.mercancia_id
-                     ORDER BY mi.fecha DESC, mi.id DESC
+                   (SELECT im.costo_unitario
+                      FROM inventario_movimientos im
+                     WHERE im.mp_id = pi.mercancia_id
+                       AND im.empresa_id = %s
+                     ORDER BY im.fecha DESC, im.id DESC
                      LIMIT 1) AS costo_ref
             FROM procesos_insumos pi
             JOIN mercancia m ON m.id = pi.mercancia_id
             WHERE pi.empresa_id = %s
             ORDER BY m.nombre
-        """, (eid,))
+        """, (eid, eid))
         items = cur.fetchall()
 
     finally:
@@ -10898,85 +12561,143 @@ def admin_procesos():
     )
 
 
+
 # ---------- ETAPAS DEL PROCESO ----------
 # ---------- /admin/procesos/<id>/etapas ----------
 @app.route('/admin/procesos/<int:id>/etapas', methods=['GET','POST'], endpoint='admin_procesos_etapas')
+@require_login
 def admin_procesos_etapas(id):
+    """Etapas del proceso - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
-        flash('Acceso denegado','danger'); return redirect('/login')
+        flash('Acceso denegado','danger')
+        return redirect('/login')
 
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     try:
+        # ✅ CORREGIDO: Validar que proceso pertenece a empresa
+        cur.execute("""
+            SELECT id, nombre, descripcion 
+            FROM procesos 
+            WHERE id=%s AND empresa_id=%s
+        """, (id, eid))
+        proceso = cur.fetchone()
+        
+        if not proceso:
+            flash('Proceso no encontrado', 'warning')
+            return redirect(url_for('admin_procesos'))
+        
         if request.method == 'POST':
-            cur.execute("""INSERT INTO procesos_etapas
-                           (proceso_id, orden, area_id, nombre, descripcion)
-                           VALUES(%s,%s,%s,%s,%s)""",
-                        (id,
-                         request.form['orden'],
-                         request.form['area_id'],
-                         request.form.get('nombre',''),
-                         request.form.get('descripcion','')))
+            # ✅ CORREGIDO: INSERT con empresa_id
+            cur.execute("""
+                INSERT INTO procesos_etapas
+                (empresa_id, proceso_id, orden, area_id, nombre, descripcion)
+                VALUES(%s,%s,%s,%s,%s,%s)
+            """, (eid, id,
+                  request.form['orden'],
+                  request.form['area_id'],
+                  request.form.get('nombre',''),
+                  request.form.get('descripcion','')))
             conn.commit()
             flash('Etapa agregada','success')
 
-        cur.execute("SELECT id, nombre, descripcion FROM procesos WHERE id=%s", (id,))
-        proceso = cur.fetchone()
-
-        cur.execute("""SELECT pe.id, pe.orden, pe.nombre, a.nombre AS area
-                       FROM procesos_etapas pe
-                       JOIN areas_produccion a ON a.id = pe.area_id
-                       WHERE pe.proceso_id=%s
-                       ORDER BY pe.orden""", (id,))
+        # ✅ CORREGIDO: SELECT con filtro de empresa
+        cur.execute("""
+            SELECT pe.id, pe.orden, pe.nombre, a.nombre AS area
+            FROM procesos_etapas pe
+            JOIN areas_produccion a ON a.id = pe.area_id
+            WHERE pe.proceso_id=%s AND pe.empresa_id=%s
+            ORDER BY pe.orden
+        """, (id, eid))
         etapas = cur.fetchall()
 
-        cur.execute("SELECT id, nombre FROM areas_produccion ORDER BY nombre")
+        cur.execute("""
+            SELECT id, nombre 
+            FROM areas_produccion 
+            WHERE empresa_id=%s 
+            ORDER BY nombre
+        """, (eid,))
         areas = cur.fetchall()
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
 
     return render_template('admin/procesos/etapas_form.html',
                            proceso=proceso, etapas=etapas, areas=areas)
 
+
 # ---------- RECETA POR ETAPA ----------
 # ---------- /admin/etapas/<etapa_id>/receta ----------
 @app.route('/admin/etapas/<int:etapa_id>/receta', methods=['GET','POST'], endpoint='admin_etapa_receta')
+@require_login
 def admin_etapa_receta(etapa_id):
+    """Receta por etapa - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
-        flash('Acceso denegado','danger'); return redirect('/login')
+        flash('Acceso denegado','danger')
+        return redirect('/login')
 
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     try:
+        # ✅ CORREGIDO: Validar etapa pertenece a empresa
+        cur.execute("""
+            SELECT pe.id, pe.nombre, pe.orden, p.nombre AS proceso
+            FROM procesos_etapas pe
+            JOIN procesos p ON p.id = pe.proceso_id
+            WHERE pe.id=%s AND pe.empresa_id=%s
+        """, (etapa_id, eid))
+        etapa = cur.fetchone()
+        
+        if not etapa:
+            flash('Etapa no encontrada', 'warning')
+            return redirect(url_for('admin_procesos'))
+        
         if request.method == 'POST':
-            cur.execute("""INSERT INTO etapas_insumos
-                           (etapa_id, mercancia_id, unidad, cantidad, merma_pct)
-                           VALUES(%s,%s,%s,%s,%s)""",
-                        (etapa_id,
-                         request.form['mercancia_id'],
-                         request.form.get('unidad',''),
-                         request.form['cantidad'],
-                         request.form.get('merma_pct', 0)))
+            # ✅ CORREGIDO: Validar mercancia pertenece a empresa
+            merc_id = request.form['mercancia_id']
+            cur.execute("""
+                SELECT id FROM mercancia 
+                WHERE id=%s AND empresa_id=%s
+            """, (merc_id, eid))
+            if not cur.fetchone():
+                flash('Mercancía no válida', 'danger')
+                return redirect(url_for('admin_etapa_receta', etapa_id=etapa_id))
+            
+            cur.execute("""
+                INSERT INTO etapas_insumos
+                (etapa_id, mercancia_id, unidad, cantidad, merma_pct)
+                VALUES(%s,%s,%s,%s,%s)
+            """, (etapa_id,
+                  merc_id,
+                  request.form.get('unidad',''),
+                  request.form['cantidad'],
+                  request.form.get('merma_pct', 0)))
             conn.commit()
             flash('Insumo agregado','success')
 
-        cur.execute("""SELECT pe.id, pe.nombre, pe.orden, p.nombre AS proceso
-                       FROM procesos_etapas pe
-                       JOIN procesos p ON p.id = pe.proceso_id
-                       WHERE pe.id=%s""", (etapa_id,))
-        etapa = cur.fetchone()
-
-        cur.execute("""SELECT ei.id, m.nombre AS mercancia, ei.unidad, ei.cantidad, ei.merma_pct
-                       FROM etapas_insumos ei
-                       JOIN mercancia m ON m.id = ei.mercancia_id
-                       WHERE ei.etapa_id=%s
-                       ORDER BY ei.id""", (etapa_id,))
+        cur.execute("""
+            SELECT ei.id, m.nombre AS mercancia, ei.unidad, ei.cantidad, ei.merma_pct
+            FROM etapas_insumos ei
+            JOIN mercancia m ON m.id = ei.mercancia_id
+            WHERE ei.etapa_id=%s AND m.empresa_id=%s
+            ORDER BY ei.id
+        """, (etapa_id, eid))
         items = cur.fetchall()
 
-        cur.execute("SELECT id, nombre FROM mercancia ORDER BY nombre")
+        cur.execute("""
+            SELECT id, nombre 
+            FROM mercancia 
+            WHERE empresa_id=%s 
+            ORDER BY nombre
+        """, (eid,))
         mercancias = cur.fetchall()
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
 
     return render_template('admin/procesos/receta_form.html',
                            etapa=etapa, items=items, mercancias=mercancias)
@@ -10984,94 +12705,153 @@ def admin_etapa_receta(etapa_id):
 # asumo: from flask import render_template, request, redirect, url_for, flash
 # asumo: función conexion_db() ya existe y session['rol']=='admin' para admin
 
-
 @app.route("/admin/procesos/<int:proceso_id>", methods=["GET"])
+@require_login
 def ver_proceso(proceso_id):
+    """Ver proceso - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
-        flash('Acceso denegado.', 'danger'); return redirect('/login')
+        flash('Acceso denegado.', 'danger')
+        return redirect('/login')
 
-    conn = conexion_db(); cur = conn.cursor(dictionary=True)
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
 
-    # Proceso
-    cur.execute("SELECT id, nombre, descripcion FROM procesos WHERE id=%s", (proceso_id,))
-    p = cur.fetchone()
-    if not p:
-        cur.close(); conn.close()
-        flash("Proceso no encontrado","warning"); return redirect(url_for("listar_procesos"))
+    try:
+        # ✅ CORREGIDO: Validar proceso pertenece a empresa
+        cur.execute("""
+            SELECT id, nombre, descripcion 
+            FROM procesos 
+            WHERE id=%s AND empresa_id=%s
+        """, (proceso_id, eid))
+        p = cur.fetchone()
+        
+        if not p:
+            flash("Proceso no encontrado","warning")
+            return redirect(url_for("admin_procesos"))
 
-    # Componentes (insumos)
-    cur.execute("""
-      SELECT pi.id, m.id AS mercancia_id, m.nombre AS componente,
-             pi.unidad, pi.cantidad, pi.merma_pct,
-             (SELECT mi.costo_unitario
-                FROM movimientos_inventario mi
-               WHERE mi.producto_id = pi.mercancia_id
-               ORDER BY mi.fecha DESC, mi.id DESC LIMIT 1) AS costo_ref
-      FROM procesos_insumos pi
-      JOIN mercancia m ON m.id = pi.mercancia_id
-      WHERE pi.proceso_id = %s
-      ORDER BY m.nombre
-    """, (proceso_id,))
-    componentes = cur.fetchall()
+        # Componentes (insumos) FILTRADOS
+        cur.execute("""
+            SELECT pi.id, m.id AS mercancia_id, m.nombre AS componente,
+                   pi.unidad, pi.cantidad, pi.merma_pct,
+                   (SELECT im.costo_unitario
+                      FROM inventario_movimientos im
+                     WHERE im.mp_id = pi.mercancia_id
+                       AND im.empresa_id = %s
+                     ORDER BY im.fecha DESC, im.id DESC 
+                     LIMIT 1) AS costo_ref
+            FROM procesos_insumos pi
+            JOIN mercancia m ON m.id = pi.mercancia_id
+            WHERE pi.proceso_id = %s AND pi.empresa_id = %s
+            ORDER BY m.nombre
+        """, (eid, proceso_id, eid))
+        componentes = cur.fetchall()
 
-    # Operaciones
-    cur.execute("""
-      SELECT id, nombre_operacion, tiempo_min, area_id
-      FROM procesos_operaciones
-      WHERE proceso_id=%s
-      ORDER BY orden ASC, id ASC
-    """, (proceso_id,))
-    operaciones = cur.fetchall()
+        # Operaciones FILTRADAS
+        cur.execute("""
+            SELECT id, nombre, tiempo_min, area_id
+            FROM procesos_operaciones
+            WHERE proceso_id=%s AND empresa_id=%s
+            ORDER BY nombre ASC, id ASC
+        """, (proceso_id, eid))
+        operaciones = cur.fetchall()
 
-    # Subproductos
-    cur.execute("""
-      SELECT id, nombre, unidad, cantidad
-      FROM procesos_subproductos
-      WHERE proceso_id=%s
-      ORDER BY id
-    """, (proceso_id,))
-    subproductos = cur.fetchall()
+        # Subproductos FILTRADOS
+        cur.execute("""
+            SELECT id, nombre, unidad, cantidad
+            FROM procesos_subproductos
+            WHERE proceso_id=%s AND empresa_id=%s
+            ORDER BY id
+        """, (proceso_id, eid))
+        subproductos = cur.fetchall()
 
-    cur.close(); conn.close()
+    finally:
+        cur.close()
+        conn.close()
+        
     return render_template(
         "admin/procesos/proceso_detalle.html",
         p=p, componentes=componentes, operaciones=operaciones, subproductos=subproductos
     )
 
-
 @app.route("/admin/procesos/nuevo", methods=["GET","POST"])
+@require_login
 def nuevo_proceso():
+    """Crear nuevo proceso - CON EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
-        flash('Acceso denegado.', 'danger'); return redirect('/login')
+        flash('Acceso denegado.', 'danger')
+        return redirect('/login')
+        
     if request.method == "POST":
         nombre = request.form["nombre"].strip()
         descripcion = request.form.get("descripcion","").strip()
-        conn = conexion_db(); cur = conn.cursor()
-        cur.execute("INSERT INTO procesos (nombre, descripcion) VALUES (%s,%s)", (nombre, descripcion))
-        conn.commit(); nid = cur.lastrowid; cur.close(); conn.close()
-        flash("Proceso creado", "success"); return redirect(url_for("ver_proceso", proceso_id=nid))
+        
+        conn = conexion_db()
+        cur = conn.cursor()
+        try:
+            # ✅ CORREGIDO: INSERT con empresa_id
+            cur.execute("""
+                INSERT INTO procesos (empresa_id, nombre, descripcion) 
+                VALUES (%s,%s,%s)
+            """, (eid, nombre, descripcion))
+            conn.commit()
+            nid = cur.lastrowid
+            flash("Proceso creado", "success")
+            return redirect(url_for("ver_proceso", proceso_id=nid))
+        finally:
+            cur.close()
+            conn.close()
+            
     return render_template("admin/procesos/procesos_form.html", modo="nuevo")
 
 @app.route("/admin/procesos/editar/<int:proceso_id>", methods=["GET","POST"])
+@require_login
 def editar_proceso(proceso_id):
+    """Editar proceso - VALIDANDO EMPRESA"""
+    eid = g.empresa_id
+    
     if 'rol' not in session or session['rol'] != 'admin':
-        flash('Acceso denegado.', 'danger'); return redirect('/login')
-    conn = conexion_db(); cur = conn.cursor(dictionary=True)
-    if request.method == "POST":
-        nombre = request.form["nombre"].strip()
-        descripcion = request.form.get("descripcion","").strip()
-        activo = 1 if request.form.get("activo")=="1" else 0
-        cur.execute("UPDATE procesos SET nombre=%s, descripcion=%s, activo=%s WHERE id=%s",
-                    (nombre, descripcion, activo, proceso_id))
-        conn.commit(); cur.close(); conn.close()
-        flash("Proceso actualizado", "success"); return redirect(url_for("ver_proceso", proceso_id=proceso_id))
-    cur.execute("SELECT * FROM procesos WHERE id=%s", (proceso_id,))
-    p = cur.fetchone(); cur.close(); conn.close()
-    if not p:
-        flash("Proceso no encontrado", "warning"); return redirect(url_for("listar_procesos"))
-    return render_template("admin/procesos_form.html", modo="editar", p=p)
-
-
+        flash('Acceso denegado.', 'danger')
+        return redirect('/login')
+        
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    
+    try:
+        if request.method == "POST":
+            nombre = request.form["nombre"].strip()
+            descripcion = request.form.get("descripcion","").strip()
+            activo = 1 if request.form.get("activo")=="1" else 0
+            
+            # ✅ CORREGIDO: UPDATE validando empresa
+            cur.execute("""
+                UPDATE procesos 
+                SET nombre=%s, descripcion=%s, activo=%s 
+                WHERE id=%s AND empresa_id=%s
+            """, (nombre, descripcion, activo, proceso_id, eid))
+            conn.commit()
+            flash("Proceso actualizado", "success")
+            return redirect(url_for("ver_proceso", proceso_id=proceso_id))
+        
+        # GET - ✅ CORREGIDO: SELECT validando empresa
+        cur.execute("""
+            SELECT * FROM procesos 
+            WHERE id=%s AND empresa_id=%s
+        """, (proceso_id, eid))
+        p = cur.fetchone()
+        
+        if not p:
+            flash("Proceso no encontrado", "warning")
+            return redirect(url_for("admin_procesos"))
+            
+    finally:
+        cur.close()
+        conn.close()
+        
+    return render_template("admin/procesos/procesos_form.html", modo="editar", p=p)
 
 
 
@@ -11105,7 +12885,7 @@ def recetas_list():
                 COUNT(p.id) AS procesos_totales,
                 SUM(CASE WHEN p.activo = 1 THEN 1 ELSE 0 END) AS procesos_activos
             FROM mercancia m
-            LEFT JOIN procesos p ON p.pt_id = m.id AND p.empresa_id = %s
+            LEFT JOIN procesos p ON p.producto_terminado_id = m.id AND p.empresa_id = %s
             WHERE m.tipo = 'PT' AND m.empresa_id = %s
             GROUP BY m.id, m.nombre
             ORDER BY m.nombre
@@ -11143,7 +12923,7 @@ def recetas_proceso(pt_id):
             
             cur.execute("""
                 SELECT id FROM procesos 
-                WHERE pt_id=%s AND empresa_id=%s
+                WHERE producto_terminado_id=%s AND empresa_id=%s
             """, (pt_id, eid))
             row = cur.fetchone()
             if row:
@@ -11163,7 +12943,7 @@ def recetas_proceso(pt_id):
         # GET: cargar proceso + pasos + insumos
         cur.execute("""
             SELECT * FROM procesos 
-            WHERE pt_id=%s AND empresa_id=%s
+            WHERE producto_terminado_id=%s AND empresa_id=%s
         """, (pt_id, eid))
         proceso = cur.fetchone()
 
@@ -11174,13 +12954,12 @@ def recetas_proceso(pt_id):
                 FROM proceso_pasos pp
                 LEFT JOIN areas_produccion a ON a.id=pp.area_id
                 WHERE pp.proceso_id=%s
-                ORDER BY pp.orden, pp.id
+                ORDER BY pp.numero_paso, pp.id    ← CORRECTO
             """, (proceso['id'],))
-            pasos = cur.fetchall()
 
             for p in pasos:
                 cur.execute("""
-                    SELECT pin.id, pin.cantidad_por_lote,
+                    SELECT pin.id, pin.cantidad,
                            m.nombre AS mp_nombre, m.id AS mp_id,
                            u.nombre AS unidad
                     FROM paso_insumos pin
@@ -11208,7 +12987,7 @@ def recetas_proceso(pt_id):
         cur.execute("SELECT id, nombre FROM unidades_medida ORDER BY nombre")
         ums = cur.fetchall()
 
-        return render_template('inventarios/WIP/recetas_proceso.html',
+        return render_template('inventarios/PT/recetas_proceso.html',
                                pt=pt, proceso=proceso, pasos=pasos,
                                areas=areas, mps=mps, ums=ums)
     finally:
@@ -11219,7 +12998,7 @@ def recetas_proceso(pt_id):
 # ==================== AGREGAR PASO ====================
 @app.post('/recetas/<int:pt_id>/pasos/agregar')
 @require_login
-def recetas_paso_agregar(pt_id):
+def recetas_paso_agregar(producto_terminado_id):
     eid = g.empresa_id
     
     nombre = (request.form.get('nombre') or '').strip() or 'Paso'
@@ -11232,12 +13011,12 @@ def recetas_paso_agregar(pt_id):
     try:
         cur.execute("""
             SELECT id FROM procesos 
-            WHERE pt_id=%s AND empresa_id=%s
-        """, (pt_id, eid))
+            WHERE producto_terminado_id=%s AND empresa_id=%s
+        """, (producto_terminado_id, eid))
         proc = cur.fetchone()
         if not proc:
             flash("Primero guarda el encabezado del proceso.", "warning")
-            return redirect(url_for('recetas_proceso', pt_id=pt_id))
+            return redirect(url_for('recetas_proceso', producto_terminado_id=producto_terminado_id))
 
         area_id = int(area_id_s) if area_id_s.isdigit() else None
         minutos = int(minutos_s) if minutos_s.isdigit() else None
@@ -11257,7 +13036,7 @@ def recetas_paso_agregar(pt_id):
     finally:
         cur.close()
         conn.close()
-    return redirect(url_for('recetas_proceso', pt_id=pt_id))
+    return redirect(url_for('recetas_proceso', producto_terminado_id=producto_terminado_id))
 
 
 # ==================== AGREGAR INSUMO A PASO ====================
@@ -11267,7 +13046,7 @@ def recetas_paso_insumo_agregar(paso_id):
     eid = g.empresa_id
     
     mp_id_s = (request.form.get('mp_id') or '').strip()
-    cant_s = (request.form.get('cantidad_por_lote') or '').strip()
+    cant_s = (request.form.get('cantidad') or '').strip()
     um_s = (request.form.get('unidad_id') or '').strip()
     
     conn = conexion_db()
@@ -11299,7 +13078,7 @@ def recetas_paso_insumo_agregar(paso_id):
 
         um_id = int(um_s) if um_s.isdigit() else None
         cur.execute("""
-            INSERT INTO paso_insumos (paso_id, mp_id, cantidad_por_lote, unidad_id)
+            INSERT INTO paso_insumos (paso_id, mp_id, cantidad, unidad_id)
             VALUES (%s, %s, %s, %s)
         """, (paso_id, int(mp_id_s), float(cant_s), um_id))
         conn.commit()
@@ -11427,12 +13206,28 @@ def editar_receta(id):
     return render_template('inventarios/PT/recetas_editar.html',
                            receta=receta, productos=productos, materiales=materiales)
 
+
+
+
+
+#        PRODUCTO     TERMINADO      #
+
+
+
+
+
 @app.route("/productos_terminados", methods=["GET", "POST"])
 @require_login
 def productos_terminados():
     """Agregar y listar Productos Terminados (PT)"""
     eid = g.empresa_id
-    
+    # 🔍 DEBUG
+    print("=" * 50)
+    print(f"DEBUG productos_terminados:")
+    print(f"  session['empresa_id'] = {session.get('empresa_id')}")
+    print(f"  g.empresa_id = {g.empresa_id}")
+    print(f"  eid = {eid}")
+    print("=" * 50)
     if request.method == "POST":
         nombre = request.form.get("nombre", "").strip()
         
@@ -11445,10 +13240,12 @@ def productos_terminados():
 
         try:
             cursor.execute("""
-                SELECT id, nombre FROM mercancia 
-                WHERE UPPER(TRIM(nombre)) = UPPER(%s) AND empresa_id = %s
-                LIMIT 1
-            """, (nombre, eid))
+            SELECT id, nombre FROM mercancia 
+            WHERE UPPER(TRIM(nombre)) = UPPER(%s) 
+            AND empresa_id = %s 
+            AND tipo = 'PT'
+            LIMIT 1
+        """, (nombre, eid))
             duplicado = cursor.fetchone()
             
             if duplicado:
@@ -11466,15 +13263,16 @@ def productos_terminados():
             mid = cursor.lastrowid
             
             cursor.execute("""
-                INSERT IGNORE INTO inventario
-                (mercancia_id, inventario_inicial, entradas, salidas, aprobado, disponible_base, empresa_id)
-                VALUES (%s, 0, 0, 0, 0, 0, %s)
-            """, (mid, eid))
+                INSERT IGNORE INTO inventario_mp
+                (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado, disponible_base)
+                VALUES (%s, %s, %s, 0, 0, 0, 0, 0)
+            """, (eid, mid, nombre))
             
             cursor.execute("""
-                INSERT INTO pt_precios (mercancia_id, modo, markup_pct)
-                VALUES (%s, 'auto', 0.30)
-            """, (mid,))
+                INSERT INTO pt_precios (empresa_id, mercancia_id, modo, markup_pct)
+                VALUES (%s, %s, 'auto', 0.30)
+                ON DUPLICATE KEY UPDATE modo = 'auto', markup_pct = 0.30
+            """, (eid, mid))
             
             conn.commit()
             flash(f"✅ Producto '{nombre}' agregado correctamente", "success")
@@ -11502,22 +13300,15 @@ def productos_terminados():
 
     return render_template("inventarios/PT/productos_terminados.html", productos=productos)
 
-
-
-
-
-#        PRODUCTO     TERMINADO      #
-
-
-
-
 @app.route('/inventario/pt')
+@require_login
 def inventario_pt_view():
     inventario = _inventario_por_tipo(3)   # PT
-    return render_template('inventarios/pt/inventario.html',
+    return render_template('inventarios/pt/inventario_pt.html',
                            inventario=inventario)
 
 @app.post("/pt/catalogo/set_modo_masivo")
+@require_login
 def pt_set_modo_masivo():
     modo = request.form.get("modo")
     ids  = request.form.getlist("ids[]")
@@ -11557,6 +13348,7 @@ def pt_set_modo_masivo():
     return redirect(url_for("pt_catalogo"))
 
 @app.route('/mercancia/pt')
+@require_login
 def mercancia_pt():
     if 'rol' not in session or session['rol'] != 'admin':
         flash('Acceso no autorizado.', 'danger')
@@ -11621,7 +13413,77 @@ def pt_catalogo_reordenar():
     conn.close()
     return "ok"
 
-
+@app.route("/productos_terminados/<int:id>/editar", methods=["GET", "POST"])
+@require_login
+def pt_editar(id):
+    """Editar Producto Terminado"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    if request.method == "POST":
+        nombre = request.form.get("nombre", "").strip()
+        
+        if not nombre:
+            flash("⚠️ El nombre no puede estar vacío", "warning")
+            return redirect(url_for("pt_editar", id=id))
+        
+        try:
+            # Verificar duplicado (excepto el mismo producto)
+            cursor.execute("""
+                SELECT id, nombre FROM mercancia 
+                WHERE UPPER(TRIM(nombre)) = UPPER(%s) 
+                  AND empresa_id = %s 
+                  AND tipo = 'PT'
+                  AND id != %s
+                LIMIT 1
+            """, (nombre, eid, id))
+            duplicado = cursor.fetchone()
+            
+            if duplicado:
+                flash(f"⚠️ Ya existe '{duplicado['nombre']}' (ID: {duplicado['id']})", 'warning')
+                cursor.close()
+                conn.close()
+                return redirect(url_for("pt_editar", id=id))
+            
+            # Actualizar
+            cursor.execute("""
+                UPDATE mercancia 
+                SET nombre = %s
+                WHERE id = %s AND empresa_id = %s AND tipo = 'PT'
+            """, (nombre, id, eid))
+            
+            conn.commit()
+            flash(f"✅ Producto actualizado correctamente", "success")
+            
+        except Exception as e:
+            conn.rollback()
+            flash(f"❌ Error: {str(e)}", "danger")
+        finally:
+            cursor.close()
+            conn.close()
+            
+        return redirect(url_for("productos_terminados"))
+    
+    # GET - Cargar producto
+    try:
+        cursor.execute("""
+            SELECT id, nombre
+            FROM mercancia 
+            WHERE id = %s AND empresa_id = %s AND tipo = 'PT'
+        """, (id, eid))
+        producto = cursor.fetchone()
+        
+        if not producto:
+            flash("❌ Producto no encontrado", "danger")
+            return redirect(url_for("productos_terminados"))
+            
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template("inventarios/PT/pt_editar.html", producto=producto)
 
 
 #   VENTAS  #
@@ -11702,12 +13564,18 @@ def nueva_compra():
         precios  = request.form.getlist('precio_unitario[]')
         totales  = request.form.getlist('precio_total[]')
 
+        # Capturar gastos
+        gasto_cuentas = request.form.getlist('gasto_cuenta[]')
+        gasto_cuenta_ids = request.form.getlist('gasto_cuenta_id[]')
+        gasto_descripciones = request.form.getlist('gasto_descripcion[]')
+        gasto_montos = request.form.getlist('gasto_monto[]')
+
         if not proveedor or not fecha or not numero_factura:
             flash('Proveedor, fecha y número de factura son obligatorios.', 'danger')
             return redirect(url_for('nueva_compra'))
 
         conn = conexion_db()
-        cur = conn.cursor(dictionary=True)
+        cur = conn.cursor(dictionary=True, buffered=True)
         
         try:
             items = []
@@ -11723,6 +13591,8 @@ def nueva_compra():
             if not prov:
                 flash(f'⚠️ El proveedor "{proveedor}" no existe en tu empresa. Regístralo primero.', 'warning')
                 return redirect(url_for('nueva_compra'))
+            
+            proveedor_id = prov['id']
 
             # ✅ PROCESAR ITEMS
             for i in range(max(len(nombres), len(unidades), len(precios), len(totales))):
@@ -11807,96 +13677,161 @@ def nueva_compra():
                 flash(f"⚠️ Productos omitidos: {', '.join(productos_fallidos)}", "warning")
 
             if not items:
-                conn.rollback()
                 flash("No hay productos válidos para registrar.", "danger")
                 return redirect(url_for('nueva_compra'))
 
             # ✅ CALCULAR TOTALES
             subtotal = sum(x["precio_total"] for x in items)
-            iva = subtotal * 0.16  # Ajustar según tu país
-            total_general = subtotal + iva
+            iva = subtotal * 0
+            ieps = 0
+            total_general = subtotal + iva + ieps
 
-            # ✅ INSERTAR ENCABEZADO DE COMPRA
+            # ✅ INSERTAR ENCABEZADO DE COMPRA EN TABLA CORRECTA
             cur.execute("""
-                INSERT INTO listado_compras 
-                (empresa_id, usuario_id, proveedor, fecha, numero_factura, subtotal, iva, total, observaciones)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (eid, uid, proveedor, fecha, numero_factura, subtotal, iva, total_general, observaciones))
+                INSERT INTO compras 
+                (empresa_id, usuario_id, contratante_id, proveedor_id, proveedor, fecha, numero_factura, 
+                 subtotal, iva, ieps, total, forma_pago, estado, notas)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pendiente', %s)
+            """, (eid, uid, g.contratante_id, proveedor_id, proveedor, fecha, numero_factura, 
+                  subtotal, iva, ieps, total_general, metodo_pago, observaciones))
             compra_id = cur.lastrowid
+            print(f"✅ Compra {compra_id} - Encabezado insertado")
+
+            # ✅ INSERTAR DETALLE + ACTUALIZAR INVENTARIO
+            productos_insertados = 0
+            for x in items:
+                # Detalle de compra
+                cur.execute("""
+                    INSERT INTO detalle_compra
+                    (empresa_id, usuario_id, contratante_id, compra_id, mercancia_id, producto, unidades, 
+                     contenido_neto_total, precio_unitario, precio_total)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (eid, uid, g.contratante_id, compra_id, x["mercancia_id"], x["nombre"], x["unidades_base"],
+                      x["contenido_neto_total"], x["precio_unitario"], x["precio_total"]))
+
+                # Verificar si requiere produccion
+                cur.execute("""
+                    SELECT pb.requiere_produccion, m.id as mercancia_id
+                    FROM mercancia m
+                    JOIN producto_base pb ON pb.id = m.producto_base_id
+                    WHERE m.id = %s
+                """, (x["mercancia_id"],))
+                info = cur.fetchone()
+                requiere_produccion = info['requiere_produccion'] if info else 1
+
+                if requiere_produccion:
+                    # Va a inventario MP
+                    cur.execute("""
+                        INSERT INTO inventario_mp
+                        (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado, disponible_base)
+                        VALUES (%s, %s, %s, 0, %s, 0, 0, %s)
+                        ON DUPLICATE KEY UPDATE
+                        entradas = entradas + VALUES(entradas),
+                        disponible_base = disponible_base + VALUES(disponible_base)
+                    """, (eid, x["mercancia_id"], x["nombre"], x["contenido_neto_total"], x["contenido_neto_total"]))
+                else:
+                    # Va directo a PT
+                    cur.execute("""
+                        INSERT INTO inventario_movimientos_pt
+                        (empresa_id, pt_id, fecha, tipo_movimiento, cantidad, costo_unitario, costo_total,
+                         referencia_tipo, referencia_id, usuario_id)
+                        VALUES (%s, %s, %s, 'entrada', %s, %s, %s, 'compra', %s, %s)
+                    """, (eid, x["mercancia_id"], fecha, x["contenido_neto_total"],
+                          x["precio_unitario"], x["precio_total"], compra_id, uid))
+
+                productos_insertados += 1
+
+            print(f"✅ Compra {compra_id} - {productos_insertados} productos insertados")
+                
+                # Movimiento de inventario
+#                cur.execute("""
+#                    INSERT INTO inventario_movimientos
+#                    (empresa_id, usuario_id, contratante_id, tipo_inventario_id, mercancia_id, tipo_movimiento, 
+#                     unidades, precio_unitario, referencia, fecha)
+#                    VALUES (%s, %s, %s, 1, %s, 'entrada', %s, %s, %s, %s)
+#                """, (eid, uid, g.contratante_id, x["mercancia_id"], x["contenido_neto_total"], 
+#                      x["precio_unitario"], f"Compra {numero_factura}", fecha))
+            
+            print(f"✅ Compra {compra_id} - {len(items)} productos insertados")
+
+            # ✅ REGISTRAR GASTOS ASOCIADOS
+            gastos_registrados = 0
+            for i in range(len(gasto_cuenta_ids)):
+                cuenta_id_str = (gasto_cuenta_ids[i] if i < len(gasto_cuenta_ids) else "").strip()
+                descripcion = (gasto_descripciones[i] if i < len(gasto_descripciones) else "").strip()
+                monto_str = (gasto_montos[i] if i < len(gasto_montos) else "0").strip()
+                
+                # Saltar gastos vacíos
+                if not cuenta_id_str or not monto_str:
+                    continue
+                
+                try:
+                    cuenta_id = int(cuenta_id_str)
+                    monto = float(monto_str)
+                    
+                    if monto <= 0:
+                        continue
+                    
+                    # Obtener nombre de cuenta
+                    cur.execute("""
+                        SELECT codigo, nombre 
+                        FROM cuentas_contables 
+                        WHERE id = %s AND empresa_id = %s
+                    """, (cuenta_id, eid))
+                    cuenta = cur.fetchone()
+                    
+                    if not cuenta:
+                        continue
+                    
+                    concepto = f"{cuenta['codigo']} - {cuenta['nombre']}"
+                    
+                    # Insertar gasto
+                    cur.execute("""
+                        INSERT INTO compras_gastos
+                        (compra_id, empresa_id, cuenta_contable_id, concepto, descripcion, monto, fecha, registrado_por)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (compra_id, eid, cuenta_id, concepto, descripcion, monto, fecha, uid))
+                    
+                    gastos_registrados += 1
+                    
+                except Exception as e:
+                    print(f"⚠️ Error al registrar gasto: {e}")
+                    continue
+
+            if gastos_registrados > 0:
+                print(f"✅ Compra {compra_id} - {gastos_registrados} gasto(s) registrado(s)")
 
             # ✅ REGISTRAR CRÉDITO SI APLICA
             if metodo_pago == 'credito':
                 cur.execute("""
                     INSERT INTO compras_credito
-                    (empresa_id, usuario_id, compra_id, fecha, numero_documento, proveedor, importe, iva, total)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (eid, uid, compra_id, fecha, numero_factura, proveedor, subtotal, iva, total_general))
+                    (empresa_id, usuario_id, contratante_id, compra_id, fecha, numero_documento, proveedor, importe, iva, total)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (eid, uid, g.contratante_id, compra_id, fecha, numero_factura, proveedor, subtotal, iva, total_general))
+                print(f"✅ Compra {compra_id} - Crédito registrado")
 
-            # ✅ ASIENTO CONTABLE (si la función lo soporta)
-            try:
-                cuenta_pago = 30 if metodo_pago == "efectivo" else 40 if metodo_pago == "banco" else 30
-                movimientos = [
-                    {"cuenta_id": 10, "debe": float(total_general), "haber": 0},
-                    {"cuenta_id": cuenta_pago, "debe": 0, "haber": float(total_general)}
-                ]
-                registrar_asiento_compra(cur, conn, f"Compra {numero_factura}", movimientos)
-            except Exception as e:
-                print(f"⚠️ Advertencia asiento contable: {e}")
-
-            # ✅ INSERTAR DETALLE + ACTUALIZAR INVENTARIO
-            for x in items:
-                # Detalle de compra
-                cur.execute("""
-                    INSERT INTO detalle_compra
-                    (empresa_id, usuario_id, compra_id, mercancia_id, producto, unidades, 
-                     contenido_neto_total, precio_unitario, precio_total)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (eid, uid, compra_id, x["mercancia_id"], x["nombre"], x["unidades_base"],
-                      x["contenido_neto_total"], x["precio_unitario"], x["precio_total"]))
-
-                # Actualizar stock (tabla inventario)
-                cur.execute("""
-                    INSERT INTO inventario
-                    (empresa_id, mercancia_id, inventario_inicial, entradas, salidas, aprobado)
-                    VALUES (%s, %s, 0, %s, 0, 0)
-                    ON DUPLICATE KEY UPDATE
-                    entradas = entradas + VALUES(entradas)
-                """, (eid, x["mercancia_id"], x["contenido_neto_total"]))
-
-                # Movimiento de inventario (MP = tipo_inventario_id=1)
-                cur.execute("""
-                    INSERT INTO inventario_movimientos
-                    (empresa_id, usuario_id, tipo_inventario_id, mercancia_id, tipo_movimiento, 
-                     unidades, precio_unitario, referencia, fecha)
-                    VALUES (%s, %s, 1, %s, 'COMPRA', %s, %s, %s, %s)
-                """, (eid, uid, x["mercancia_id"], x["contenido_neto_total"], 
-                      x["precio_unitario"], f"Compra {numero_factura}", fecha))
-
+            # ✅ COMMIT FINAL
             conn.commit()
+            print(f"✅ COMMIT exitoso - Compra {compra_id} guardada completamente")
+            
             flash(f"✅ Compra #{compra_id} registrada exitosamente. Stock actualizado.", "success")
             return redirect(url_for('detalle_compra', id=compra_id))
 
         except Exception as e:
             conn.rollback()
-            print(f"[ERROR] /nueva_compra POST: {e}")
+            print(f"❌ ERROR al registrar compra: {e}")
             import traceback
             traceback.print_exc()
             flash(f"❌ Error al registrar compra: {e}", "danger")
             return redirect(url_for('nueva_compra'))
             
         finally:
-            try:
-                cur.close()
-            except:
-                pass
-            try:
-                conn.close()
-            except:
-                pass
+            cur.close()
+            conn.close()
 
     # ========== GET ==========
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     
     try:
         # ✅ CATÁLOGOS FILTRADOS POR EMPRESA
@@ -11920,18 +13855,24 @@ def nueva_compra():
         """, (eid,))
         productos = cur.fetchall()
         
-    finally:
-        try:
-            cur.close()
-        except:
-            pass
-        try:
-            conn.close()
-        except:
-            pass
+        # Cargar cuentas de gastos
+        cur.execute("""
+            SELECT id, codigo, nombre 
+            FROM cuentas_contables 
+            WHERE empresa_id = %s AND codigo LIKE '61%'
+            ORDER BY codigo
+        """, (eid,))
+        cuentas_gastos = cur.fetchall()
 
-    return render_template('nueva_compra.html', proveedores=proveedores, productos=productos)
-    
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('nueva_compra.html', 
+                      proveedores=proveedores, 
+                      productos=productos,
+                      cuentas_gastos=cuentas_gastos)
+        
 @app.route('/detalle_compra/<int:id>')
 @require_login
 def detalle_compra(id):
@@ -11945,27 +13886,31 @@ def detalle_compra(id):
     eid = g.empresa_id
 
     conn = conexion_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor(dictionary=True, buffered=True)
 
     try:
         # ✅ ENCABEZADO (validar pertenencia a la empresa)
         cursor.execute("""
             SELECT 
-                id,
-                proveedor,
-                DATE_FORMAT(fecha, '%%d %%b %%Y') AS fecha_fmt,
-                fecha,
-                numero_factura,
-                subtotal,
-                iva,
-                total,
-                COALESCE(tipo_cambio, 1) as tipo_cambio,
-                COALESCE(moneda, 'MXN') as moneda,
-                observaciones
-            FROM listado_compras
-            WHERE id = %s
-              AND empresa_id = %s
-        """, (id, eid))
+                c.id,
+                COALESCE(p.nombre, c.proveedor) as proveedor,
+                DATE_FORMAT(c.fecha, '%%d %%b %%Y') AS fecha_fmt,
+                c.fecha,
+                c.numero_factura,
+                c.subtotal,
+                c.iva,
+                c.ieps,
+                c.total,
+                COALESCE(c.tipo_cambio, 1) as tipo_cambio,
+                c.forma_pago,
+                c.estado,
+                c.notas as observaciones
+            FROM compras c
+            LEFT JOIN proveedores p ON c.proveedor_id = p.id
+            WHERE c.id = %s
+            AND c.empresa_id = %s
+            AND c.contratante_id = %s
+        """, (id, eid, g.contratante_id))
         compra = cursor.fetchone()
 
         if not compra:
@@ -11981,17 +13926,39 @@ def detalle_compra(id):
                 dc.contenido_neto_total,
                 dc.precio_unitario,
                 dc.precio_total,
-                dc.iva as iva_detalle,
-                um.nombre as unidad_medida,
-                um.abreviatura as unidad_abrev
+                um.nombre as unidad_medida
             FROM detalle_compra dc
             LEFT JOIN mercancia m ON m.id = dc.mercancia_id
-            LEFT JOIN unidades_medida um ON um.id = dc.unidad_medida_id
+            LEFT JOIN unidades_medida um ON um.id = m.unidad_id
             WHERE dc.compra_id = %s
-              AND dc.empresa_id = %s
+            AND dc.empresa_id = %s
+            AND dc.contratante_id = %s
             ORDER BY dc.id
-        """, (id, eid))
+        """, (id, eid, g.contratante_id))
         detalles = cursor.fetchall()
+
+        # ✅ CARGAR GASTOS ASOCIADOS
+        cursor.execute("""
+            SELECT
+                cg.id,
+                cg.concepto,
+                cg.descripcion,
+                cg.monto,
+                cc.codigo as cuenta_codigo,
+                cc.nombre as cuenta_nombre
+            FROM compras_gastos cg
+            LEFT JOIN cuentas_contables cc ON cc.id = cg.cuenta_contable_id
+            WHERE cg.compra_id = %s
+            AND cg.empresa_id = %s
+            ORDER BY cg.id
+        """, (id, eid))
+        gastos = cursor.fetchall()
+
+        # Calcular total real con gastos
+        total_gastos = sum(g['monto'] for g in gastos)
+        total_general = (compra['subtotal'] or 0) + total_gastos + (compra['iva'] or 0) + (compra['ieps'] or 0)
+        compra['total_general_calculado'] = total_general
+        compra['total_gastos'] = total_gastos
 
     except Exception as e:
         print(f"[ERROR] /detalle_compra/{id}: {e}")
@@ -12011,8 +13978,9 @@ def detalle_compra(id):
             pass
 
     return render_template('detalle_compra_popup.html',
-                           compra=compra,
-                           detalles=detalles)
+                       compra=compra,
+                       detalles=detalles,
+                       gastos=gastos)
 
 @app.route('/listado_compras')
 @require_login
@@ -12024,19 +13992,39 @@ def listado_compras():
     cur = conn.cursor(dictionary=True)
     
     try:
-        # ✅ FILTRAR POR EMPRESA
+        # ✅ FILTRAR POR EMPRESA + CALCULAR TOTAL CON GASTOS
         cur.execute("""
             SELECT
-                id,
-                DATE_FORMAT(fecha, '%%d %%b %%Y') AS fecha_fmt,
-                proveedor,
-                numero_factura,
-                total
-            FROM listado_compras
-            WHERE empresa_id = %s
-            ORDER BY id DESC
-        """, (eid,))
+                c.id,
+                DATE_FORMAT(c.fecha, '%d %b %Y') AS fecha_fmt,
+                c.fecha,
+                COALESCE(p.nombre, c.proveedor) as proveedor,
+                c.numero_factura,
+                c.subtotal,
+                c.iva,
+                c.ieps,
+                c.total,
+                COALESCE(SUM(cg.monto), 0) as total_gastos,
+                (c.subtotal + c.iva + c.ieps + COALESCE(SUM(cg.monto), 0)) as total_general,
+                c.forma_pago,
+                c.estado
+            FROM compras c
+            LEFT JOIN proveedores p ON c.proveedor_id = p.id
+            LEFT JOIN compras_gastos cg ON cg.compra_id = c.id
+            WHERE c.empresa_id = %s AND c.contratante_id = %s
+            GROUP BY c.id
+            ORDER BY c.id DESC
+        """, (eid, g.contratante_id))
         compras = cur.fetchall()
+
+        # DEBUG: Ver qué llega
+        if compras:
+            print(f"DEBUG LISTADO - Primera compra:")
+            print(f"  ID: {compras[0]['id']}")
+            print(f"  fecha_fmt: '{compras[0].get('fecha_fmt')}'")
+            print(f"  fecha: '{compras[0].get('fecha')}'")
+            print(f"  Keys disponibles: {compras[0].keys()}")
+        
         
     except Exception as e:
         print(f"[ERROR] /listado_compras: {e}")
@@ -12061,32 +14049,37 @@ def listado_compras():
 @require_login
 def editar_compra(id):
     eid = g.empresa_id
-    
+
+    if session.get('rol') != 'admin':
+        flash('Acceso no autorizado.', 'danger')
+        return redirect('/login')
+
     conn = conexion_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor(dictionary=True, buffered=True)
 
     if request.method == 'POST':
-        proveedor = request.form['proveedor']
-        fecha = request.form['fecha']
-        numero_factura = request.form['numero_factura']
-        total = request.form['total']
+        proveedor = request.form.get('proveedor', '').strip()
+        fecha = request.form.get('fecha', '').strip()
+        numero_factura = request.form.get('numero_factura', '').strip()
+        forma_pago = request.form.get('forma_pago', 'efectivo')
+        notas = request.form.get('notas', '').strip()
 
         cursor.execute("""
-            UPDATE listado_compras
-            SET proveedor=%s, fecha=%s, numero_factura=%s, total=%s
+            UPDATE compras
+            SET proveedor=%s, fecha=%s, numero_factura=%s, forma_pago=%s, notas=%s
             WHERE id=%s AND empresa_id=%s
-        """, (proveedor, fecha, numero_factura, total, id, eid))
-
+        """, (proveedor, fecha, numero_factura, forma_pago, notas, id, eid))
         conn.commit()
         cursor.close()
         conn.close()
-
-        flash('Compra actualizada correctamente.', 'success')
-        return redirect('/listado_compras')
+        flash('✅ Compra actualizada correctamente.', 'success')
+        return redirect(url_for('listado_compras'))
 
     cursor.execute("""
-        SELECT * FROM listado_compras 
-        WHERE id = %s AND empresa_id = %s
+        SELECT c.*, COALESCE(p.nombre, c.proveedor) as proveedor_nombre
+        FROM compras c
+        LEFT JOIN proveedores p ON p.id = c.proveedor_id
+        WHERE c.id = %s AND c.empresa_id = %s
     """, (id, eid))
     compra = cursor.fetchone()
     cursor.close()
@@ -12094,7 +14087,7 @@ def editar_compra(id):
 
     if not compra:
         flash('Compra no encontrada.', 'warning')
-        return redirect('/listado_compras')
+        return redirect(url_for('listado_compras'))
 
     return render_template('editar_compra.html', compra=compra)
 
@@ -12104,36 +14097,45 @@ def eliminar_compra(id):
     eid = g.empresa_id
     
     conn = conexion_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor(dictionary=True, buffered=True)
     try:
         # Verificar pertenencia
         cursor.execute("""
-            SELECT numero_factura FROM listado_compras 
-            WHERE id = %s AND empresa_id = %s
-        """, (id, eid))
+            SELECT numero_factura FROM compras 
+            WHERE id = %s AND empresa_id = %s AND contratante_id = %s
+        """, (id, eid, g.contratante_id))
         compra = cursor.fetchone()
         
         if not compra:
-            flash('Compra no encontrada.', 'warning')
-            return redirect('/listado_compras')
+            flash('Compra no encontrada o no pertenece a tu empresa.', 'warning')
+            return redirect(url_for('listado_compras'))
 
         numero_factura = compra['numero_factura']
 
         # Restar entradas del inventario
         cursor.execute("""
-            UPDATE inventario i
-            JOIN detalle_compra dc ON dc.mercancia_id = i.mercancia_id AND dc.empresa_id = i.empresa_id
-            SET i.entradas = GREATEST(0, i.entradas - dc.contenido_neto_total)
-            WHERE dc.compra_id = %s AND dc.empresa_id = %s
+            SELECT mercancia_id, contenido_neto_total
+            FROM detalle_compra 
+            WHERE compra_id = %s AND empresa_id = %s
         """, (id, eid))
+        detalles = cursor.fetchall()
+        
+        for det in detalles:
+            cursor.execute("""
+                UPDATE inventario
+                SET entradas = GREATEST(0, entradas - %s),
+                    disponible_base = GREATEST(0, disponible_base - %s)
+                WHERE mercancia_id = %s AND empresa_id = %s
+            """, (det['contenido_neto_total'], det['contenido_neto_total'], 
+                  det['mercancia_id'], eid))
 
         # Eliminar movimientos
         cursor.execute("""
-            DELETE FROM inventario_movimientos 
-            WHERE tipo_movimiento = 'COMPRA' 
+            DELETE FROM inventario_movimientos_mp
+            WHERE tipo_movimiento = 'entrada' 
               AND referencia = %s
               AND empresa_id = %s
-        """, (numero_factura, eid))
+        """, (f"Compra {id}", eid))
 
         # Eliminar detalles
         cursor.execute("""
@@ -12141,7 +14143,7 @@ def eliminar_compra(id):
             WHERE compra_id = %s AND empresa_id = %s
         """, (id, eid))
 
-        # Eliminar crédito
+        # Eliminar crédito si existe
         cursor.execute("""
             DELETE FROM compras_credito 
             WHERE compra_id = %s AND empresa_id = %s
@@ -12149,23 +14151,27 @@ def eliminar_compra(id):
 
         # Eliminar encabezado
         cursor.execute("""
-            DELETE FROM listado_compras 
-            WHERE id = %s AND empresa_id = %s
-        """, (id, eid))
+            DELETE FROM compras 
+            WHERE id = %s AND empresa_id = %s AND contratante_id = %s
+        """, (id, eid, g.contratante_id))
 
         conn.commit()
-        flash('✅ Compra eliminada completamente.', 'success')
+        flash('✅ Compra eliminada completamente. Inventario actualizado.', 'success')
         
     except Exception as e:
         conn.rollback()
-        flash(f'❌ Error: {e}', 'danger')
+        print(f"❌ Error eliminando compra: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'❌ Error al eliminar: {e}', 'danger')
     finally:
         cursor.close()
         conn.close()
 
-    return redirect('/listado_compras')
+    return redirect(url_for('listado_compras'))
 
 @app.route('/agregar', methods=['GET', 'POST'])
+@require_login
 def agregar_producto():
     """
     Permite al admin agregar un nuevo producto manualmente.
@@ -12194,6 +14200,7 @@ def agregar_producto():
 from flask import jsonify  # si faltaba
 
 @app.route("/check_producto/<path:nombre>", methods=["GET"], endpoint="check_producto_api")
+@require_login
 def check_producto_api(nombre):
     n = (nombre or "").strip()
     if not n:
@@ -12230,10 +14237,11 @@ def mercancia():
     eid = g.empresa_id
     
     conn = conexion_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor(dictionary=True, buffered=True)
 
     if request.method == 'POST':
         nombre = (request.form.get('nombre') or '').strip()
+        codigo_barras = (request.form.get('codigo_barras') or '').strip() or None
         
         # Validar duplicado EN ESTA EMPRESA
         cursor.execute("""
@@ -12280,18 +14288,61 @@ def mercancia():
                 catalogo_id = get_or_create_catalogo(cursor, conn, catalogo_nuevo, tipo='MP')
 
             if not producto_base_id and producto_base_nuevo:
+                # CREAR SUBCUENTA CONTABLE PARA MATERIA PRIMA
+                subcuenta_mp_id = None
+                try:
+                    # Buscar cuenta padre 1104-001 (Inventario Materia Prima)
+                    cursor.execute("""
+                        SELECT id FROM cuentas_contables 
+                        WHERE empresa_id = %s AND codigo = '1104-001'
+                    """, (eid,))
+                    cuenta_1104_001 = cursor.fetchone()
+                    
+                    if cuenta_1104_001:
+                        padre_inventario_id = cuenta_1104_001['id']
+                        
+                        # Buscar última subcuenta bajo 1104-001
+                        cursor.execute("""
+                            SELECT codigo FROM cuentas_contables 
+                            WHERE empresa_id = %s AND codigo LIKE '1104-001-%%'
+                            ORDER BY codigo DESC LIMIT 1
+                        """, (eid,))
+                        ultima = cursor.fetchone()
+                        
+                        if ultima:
+                            ultimo_num = int(ultima['codigo'].split('-')[-1])
+                            siguiente_num = ultimo_num + 1
+                        else:
+                            siguiente_num = 1
+                        
+                        # Crear código: 1104-001-001, 1104-001-002, etc.
+                        nuevo_codigo = f"1104-001-{siguiente_num:03d}"
+                        nuevo_nombre = f"INV MP - {producto_base_nuevo}"
+                        
+                        # Insertar subcuenta contable
+                        cursor.execute("""
+                            INSERT INTO cuentas_contables 
+                            (contratante_id, empresa_id, codigo, nombre, tipo, naturaleza, nivel, padre_id, permite_subcuentas)
+                            VALUES (%s, %s, %s, %s, 'Activo', 'Deudora', 5, %s, 0)
+                        """, (g.contratante_id, eid, nuevo_codigo, nuevo_nombre, padre_inventario_id))
+                        
+                        subcuenta_mp_id = cursor.lastrowid
+                        print(f"✅ Subcuenta MP creada: {nuevo_codigo} - {nuevo_nombre} (ID: {subcuenta_mp_id})")
+                except Exception as e:
+                    print(f"⚠️ Error creando subcuenta MP: {e}")
+                
+                # Crear producto_base CON subcuenta
                 cursor.execute("""
-                    INSERT INTO producto_base (empresa_id, nombre, unidad_id, activo)
+                    INSERT INTO producto_base (empresa_id, nombre, subcuenta_id, activo)
                     VALUES (%s, %s, %s, 1)
-                """, (eid, producto_base_nuevo, unidad_id))
+                """, (eid, producto_base_nuevo, subcuenta_mp_id))
                 conn.commit()
                 producto_base_id = cursor.lastrowid
 
             cursor.execute("""
                 SELECT id FROM cuentas_contables
                 WHERE nivel=2 AND empresa_id = %s
-                ORDER BY codigo
-                LIMIT 1
+                ORDER BY codigo LIMIT 1
             """, (eid,))
             row = cursor.fetchone()
             cuenta_padre_id = row["id"] if row else None
@@ -12310,23 +14361,40 @@ def mercancia():
             except:
                 maximo_existencia = Decimal('0')
 
+            # Obtener subcuenta desde producto_base
+            subcuenta_id = None
+            if producto_base_id:
+                cursor.execute("""
+                    SELECT subcuenta_id FROM producto_base 
+                    WHERE id = %s AND empresa_id = %s
+                """, (producto_base_id, eid))
+                pb_data = cursor.fetchone()
+                if pb_data:
+                    subcuenta_id = pb_data['subcuenta_id']
+
+            # DEBUG: Ver qué valores se están insertando
+            print(f"DEBUG INSERT mercancia:")
+            print(f"  empresa_id={eid}, nombre={nombre}, unidad_id={unidad_id}")
+            print(f"  cont_neto={cont_neto}, iva={iva}, ieps={ieps}")
+            print(f"  producto_base_id={producto_base_id}, subcuenta_id={subcuenta_id}")
+
             # INSERT CON EMPRESA_ID
             cursor.execute("""
                 INSERT INTO mercancia
-                    (empresa_id, nombre, tipo, unidad_id, cont_neto, iva, ieps,
+                    (empresa_id, nombre, codigo_barras, tipo, unidad_id, cont_neto, iva, ieps,
                      cuenta_id, subcuenta_id, catalogo_id, producto_base_id, 
                      minimo_existencia, maximo_existencia)
-                VALUES (%s, %s, 'MP', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (eid, nombre, unidad_id, str(cont_neto), iva, ieps,
-                  cuenta_padre_id, None, catalogo_id, producto_base_id, 
+                VALUES (%s, %s, %s, 'MP', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (eid, nombre, codigo_barras, unidad_id, str(cont_neto), iva, ieps,
+                  cuenta_padre_id, subcuenta_id, catalogo_id, producto_base_id, 
                   str(minimo_existencia), str(maximo_existencia)))
             mid = cursor.lastrowid
 
             cursor.execute("""
-                INSERT IGNORE INTO inventario
-                    (empresa_id, mercancia_id, inventario_inicial, entradas, salidas, aprobado, disponible_base)
-                VALUES (%s, %s, 0, 0, 0, 0, 0)
-            """, (eid, mid))
+                INSERT IGNORE INTO inventario_mp
+                    (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado, disponible_base)
+                VALUES (%s, %s, %s, 0, 0, 0, 0, 0)
+            """, (eid, mid, nombre))
 
             cursor.execute("SELECT nombre FROM unidades_medida WHERE id=%s", (unidad_id,))
             um = cursor.fetchone()
@@ -12354,7 +14422,7 @@ def mercancia():
         unidades = cursor.fetchall()
 
         cursor.execute("""
-            SELECT p.id, p.nombre, p.cont_neto,
+            SELECT p.id, p.nombre, p.codigo_barras, p.cont_neto,
                    u.nombre AS unidad, p.iva, p.ieps,
                    p.catalogo_id, p.producto_base_id,
                    p.minimo_existencia, p.maximo_existencia,
@@ -12409,17 +14477,18 @@ def actualizar_mercancia(id):
     eid = g.empresa_id
     
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cursor = conn.cursor(dictionary=True, buffered=True)
     try:
         nombre = request.form['nombre'].strip()
+        codigo_barras = (request.form.get('codigo_barras') or '').strip() or None
         unidad_id = int(request.form['unidad_id'])
         iva_s = str(request.form.get('iva', '0')).strip()
         ieps_s = str(request.form.get('ieps', '0')).strip()
         cont_s = (request.form.get('cont_neto') or '0').strip()
         sub_s = request.form.get('subcuenta_id') or ''
 
-        cur.execute("SELECT id FROM unidades_medida WHERE id=%s", (unidad_id,))
-        if not cur.fetchone():
+        cursor.execute("SELECT id FROM unidades_medida WHERE id=%s", (unidad_id,))
+        if not cursor.fetchone():
             raise ValueError("Unidad de medida inválida")
 
         try:
@@ -12435,8 +14504,8 @@ def actualizar_mercancia(id):
 
         cuenta_padre_id = None
         if subcuenta_id:
-            cur.execute("SELECT padre_id FROM cuentas_contables WHERE id=%s", (subcuenta_id,))
-            r = cur.fetchone()
+            cursor.execute("SELECT padre_id FROM cuentas_contables WHERE id=%s", (subcuenta_id,))
+            r = cursor.fetchone()
             if r and r['padre_id']:
                 cuenta_padre_id = r['padre_id']
 
@@ -12444,7 +14513,7 @@ def actualizar_mercancia(id):
         catalogo_nuevo = (request.form.get('catalogo_nuevo') or '').strip()
         catalogo_id = int(catalogo_id_s) if catalogo_id_s.isdigit() else None
         if not catalogo_id and catalogo_nuevo:
-            catalogo_id = get_or_create_catalogo(cur, conn, catalogo_nuevo, tipo='MP')
+            catalogo_id = get_or_create_catalogo(cursor, conn, catalogo_nuevo, tipo='MP')
 
         producto_base_id = (
             int(request.form['producto_base_id'])
@@ -12454,12 +14523,56 @@ def actualizar_mercancia(id):
         producto_base_nuevo = (request.form.get('producto_base_nuevo') or '').strip()
         
         if not producto_base_id and producto_base_nuevo:
-            cur.execute("""
-                INSERT INTO producto_base (empresa_id, nombre, unidad_id, activo)
+            # CREAR SUBCUENTA CONTABLE PARA MATERIA PRIMA
+            subcuenta_mp_id = None
+            try:
+                # Buscar cuenta padre 1104-001 (Inventario Materia Prima)
+                cursor.execute("""
+                    SELECT id FROM cuentas_contables 
+                    WHERE empresa_id = %s AND codigo = '1104-001'
+                """, (eid,))
+                cuenta_1104_001 = cursor.fetchone()
+                
+                if cuenta_1104_001:
+                    padre_inventario_id = cuenta_1104_001['id']
+                    
+                    # Buscar última subcuenta bajo 1104-001
+                    cursor.execute("""
+                        SELECT codigo FROM cuentas_contables 
+                        WHERE empresa_id = %s AND codigo LIKE '1104-001-%%'
+                        ORDER BY codigo DESC LIMIT 1
+                    """, (eid,))
+                    ultima = cursor.fetchone()
+                    
+                    if ultima:
+                        ultimo_num = int(ultima['codigo'].split('-')[-1])
+                        siguiente_num = ultimo_num + 1
+                    else:
+                        siguiente_num = 1
+                    
+                    # Crear código: 1104-001-001, 1104-001-002, etc.
+                    nuevo_codigo = f"1104-001-{siguiente_num:03d}"
+                    nuevo_nombre = f"INV MP - {producto_base_nuevo}"
+                    
+                    # Insertar subcuenta contable
+                    cursor.execute("""
+                        INSERT INTO cuentas_contables 
+                        (contratante_id, empresa_id, codigo, nombre, tipo, naturaleza, nivel, padre_id, permite_subcuentas)
+                        VALUES (%s, %s, %s, %s, 'Activo', 'Deudora', 5, %s, 0)
+                    """, (g.contratante_id, eid, nuevo_codigo, nuevo_nombre, padre_inventario_id))
+                    
+                    subcuenta_mp_id = cursor.lastrowid
+                    print(f"✅ Subcuenta MP creada: {nuevo_codigo} - {nuevo_nombre} (ID: {subcuenta_mp_id})")
+            except Exception as e:
+                print(f"⚠️ Error creando subcuenta MP: {e}")
+            
+            # Crear producto_base CON subcuenta
+            cursor.execute("""
+                INSERT INTO producto_base (empresa_id, nombre, subcuenta_id, activo)
                 VALUES (%s, %s, %s, 1)
-            """, (eid, producto_base_nuevo, unidad_id))
+            """, (eid, producto_base_nuevo, subcuenta_mp_id))
             conn.commit()
-            producto_base_id = cur.lastrowid
+            producto_base_id = cursor.lastrowid
 
         # Obtener mínimo de existencia
         minimo_existencia = request.form.get('minimo_existencia', '0').strip()
@@ -12476,9 +14589,10 @@ def actualizar_mercancia(id):
             maximo_existencia = Decimal('0')
 
         # UPDATE VALIDANDO EMPRESA
-        cur.execute("""
+        cursor.execute("""
             UPDATE mercancia
             SET nombre=%s,
+                codigo_barras=%s,
                 cont_neto=%s,
                 unidad_id=%s,
                 iva=%s,
@@ -12490,21 +14604,21 @@ def actualizar_mercancia(id):
                 minimo_existencia=%s,
                 maximo_existencia=%s
             WHERE id=%s AND empresa_id=%s
-        """, (nombre, str(cont_neto), unidad_id, iva, ieps, subcuenta_id,
+        """, (nombre, codigo_barras, str(cont_neto), unidad_id, iva, ieps, subcuenta_id,
               cuenta_padre_id, catalogo_id, producto_base_id, 
               str(minimo_existencia), str(maximo_existencia), id, eid))
 
-        cur.execute("""
-            INSERT IGNORE INTO inventario
-                (empresa_id, mercancia_id, inventario_inicial, entradas, salidas, aprobado, disponible_base)
-            VALUES (%s, %s, 0, 0, 0, 0, 0)
-        """, (eid, id))
+        cursor.execute("""
+            INSERT IGNORE INTO inventario_mp
+                (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado, disponible_base)
+            VALUES (%s, %s, %s, 0, 0, 0, 0, 0)
+        """, (eid, id, nombre))
 
-        cur.execute("SELECT nombre FROM unidades_medida WHERE id=%s", (unidad_id,))
-        um = cur.fetchone()
+        cursor.execute("SELECT nombre FROM unidades_medida WHERE id=%s", (unidad_id,))
+        um = cursor.fetchone()
         unidad_nombre = (um['nombre'] if um else '').lower()
         desc = f"{nombre} {cont_neto} {unidad_nombre}" if unidad_nombre else f"{nombre} {cont_neto}"
-        cur.execute("""
+        cursor.execute("""
             INSERT IGNORE INTO presentaciones
                 (empresa_id, mercancia_id, descripcion, contenido_neto, unidad, factor_conversion)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -12516,7 +14630,7 @@ def actualizar_mercancia(id):
         conn.rollback()
         flash(f'❌ No se pudo actualizar: {e}', 'danger')
     finally:
-        cur.close()
+        cursor.close()
         conn.close()
     return redirect(url_for('mercancia'))
 
@@ -12534,10 +14648,10 @@ def eliminar_mercancia(id):
             flash('Producto no encontrado.', 'warning')
             return redirect(url_for('mercancia'))
         
-        cur.execute("DELETE FROM inventario_movimientos WHERE mercancia_id=%s AND empresa_id=%s", (id, eid))
+        cur.execute("DELETE FROM inventario_movimientos_mp WHERE mp_id=%s", (id,))
         cur.execute("DELETE FROM detalle_compra WHERE mercancia_id=%s AND empresa_id=%s", (id, eid))
         cur.execute("DELETE FROM presentaciones WHERE mercancia_id=%s AND empresa_id=%s", (id, eid))
-        cur.execute("DELETE FROM inventario WHERE mercancia_id=%s AND empresa_id=%s", (id, eid))
+        cur.execute("DELETE FROM inventario_mp WHERE mercancia_id=%s AND empresa_id=%s", (id, eid))
         cur.execute("DELETE FROM mercancia WHERE id=%s AND empresa_id=%s", (id, eid))
 
         conn.commit()
@@ -12623,22 +14737,7 @@ def editar_proveedor(id):
     flash('Proveedor actualizado correctamente.', 'success')
     return redirect(url_for('registrar_proveedor'))
 
-@app.route('/eliminar_proveedor/<int:id>', methods=['POST'])
-@require_login
-def eliminar_proveedor(id):
-    eid = g.empresa_id
-    
-    conn = conexion_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE proveedores SET activo = 0 WHERE id = %s AND empresa_id = %s", (id, eid))
-    conn.commit()
-    cursor.close()
-    conn.close()
-    
-    flash('Proveedor eliminado correctamente.', 'success')
-    return redirect(url_for('registrar_proveedor'))
 
-# ==================== CATÁLOGO MP CORREGIDO ====================
 # ==================== CATÁLOGO MP CORREGIDO ====================
 @app.route('/catalogo_mp')
 @require_login
@@ -12653,24 +14752,34 @@ def catalogo_mp():
     
     if q:
         cur.execute("""
-            SELECT m.*, u.nombre AS unidad_nombre
-            FROM mercancia m
-            LEFT JOIN unidades_medida u ON u.id = m.unidad_id
-            WHERE m.tipo_inventario_id = 1
-              AND m.empresa_id = %s
-              AND m.nombre LIKE %s
-            ORDER BY m.nombre
-        """, (eid, f'%{q}%'))
+            SELECT 
+                pb.id,
+                pb.nombre,
+                pb.activo,
+                pb.requiere_produccion,
+                COUNT(DISTINCT m.id) as vinculados
+            FROM producto_base pb
+            LEFT JOIN mercancia m ON m.producto_base_id = pb.id AND m.empresa_id = %s
+            WHERE pb.empresa_id = %s
+            AND pb.nombre LIKE %s
+            GROUP BY pb.id, pb.nombre, pb.activo, pb.requiere_produccion
+            ORDER BY pb.nombre
+        """, (eid, eid, f'%{q}%'))
     else:
         cur.execute("""
-            SELECT m.*, u.nombre AS unidad_nombre
-            FROM mercancia m
-            LEFT JOIN unidades_medida u ON u.id = m.unidad_id
-            WHERE m.tipo_inventario_id = 1
-              AND m.empresa_id = %s
-            ORDER BY m.nombre
-        """, (eid,))
-    
+            SELECT 
+                pb.id,
+                pb.nombre,
+                pb.activo,
+                pb.requiere_produccion,
+                COUNT(DISTINCT m.id) as vinculados
+            FROM producto_base pb
+            LEFT JOIN mercancia m ON m.producto_base_id = pb.id AND m.empresa_id = %s
+            WHERE pb.empresa_id = %s
+            GROUP BY pb.id, pb.nombre, pb.activo, pb.requiere_produccion
+            ORDER BY pb.nombre
+        """, (eid, eid))
+        
     productos = cur.fetchall()
     
     # Catálogo de unidades
@@ -12713,31 +14822,19 @@ def catalogo_mp_toggle(id):
 @require_login
 def catalogo_mp_editar(id):
     eid = g.empresa_id
-    
+
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     try:
         if request.method == 'POST':
             nombre = (request.form.get('nombre') or '').strip()
-            unidad_id_s = (request.form.get('unidad_id') or '').strip()
             activo = 1 if (request.form.get('activo') == '1') else 0
+            requiere_produccion = 1 if (request.form.get('requiere_produccion') == '1') else 0
 
             if not nombre:
                 flash("El nombre es obligatorio", "danger")
                 return redirect(url_for('catalogo_mp_editar', id=id))
 
-            if unidad_id_s.isdigit():
-                unidad_id = int(unidad_id_s)
-                cur.execute("SELECT id FROM unidades_medida WHERE id=%s", (unidad_id,))
-                if not cur.fetchone():
-                    flash("Unidad de medida inválida.", "danger")
-                    return redirect(url_for('catalogo_mp_editar', id=id))
-            else:
-                cur.execute("SELECT id FROM unidades_medida ORDER BY id LIMIT 1")
-                r = cur.fetchone()
-                unidad_id = r['id'] if r else 1
-
-            # Duplicado EN ESTA EMPRESA
             cur.execute("""
                 SELECT id FROM producto_base
                 WHERE UPPER(nombre)=UPPER(%s) AND id<>%s AND empresa_id=%s
@@ -12749,21 +14846,19 @@ def catalogo_mp_editar(id):
 
             cur.execute("""
                 UPDATE producto_base
-                SET nombre=%s, unidad_id=%s, activo=%s
+                SET nombre=%s, activo=%s, requiere_produccion=%s
                 WHERE id=%s AND empresa_id=%s
-            """, (nombre, unidad_id, activo, id, eid))
+            """, (nombre, activo, requiere_produccion, id, eid))
             conn.commit()
-            flash("Producto base actualizado", "success")
+            flash("✅ Producto base actualizado", "success")
             return redirect(url_for('catalogo_mp'))
 
-        # GET: cargar item VALIDANDO EMPRESA
         cur.execute("""
-            SELECT * FROM producto_base 
+            SELECT * FROM producto_base
             WHERE id=%s AND empresa_id=%s
         """, (id, eid))
         item = cur.fetchone()
-        cur.execute("SELECT id, nombre FROM unidades_medida ORDER BY nombre")
-        unidades = cur.fetchall()
+
     finally:
         cur.close()
         conn.close()
@@ -12772,7 +14867,8 @@ def catalogo_mp_editar(id):
         flash("Ítem no encontrado", "danger")
         return redirect(url_for('catalogo_mp'))
 
-    return render_template("inventarios/MP/catalogo_mp_editar.html", item=item, unidades=unidades)
+    return render_template("inventarios/MP/catalogo_mp_editar.html", item=item)
+
 
 @app.post('/catalogo_mp/<int:id>/eliminar')
 @require_login
@@ -12817,16 +14913,17 @@ def catalogo_mp_eliminar(id):
 @require_login
 def catalogo_mp_nuevo():
     eid = g.empresa_id
-    
+
     nombre = (request.form.get('nombre') or '').strip()
     unidad_id_s = (request.form.get('unidad_id') or '').strip()
-    
+    requiere_produccion = 1 if request.form.get('requiere_produccion', '1') == '1' else 0
+
     if not nombre:
         flash("Nombre obligatorio.", "danger")
         return redirect(url_for('catalogo_mp') + '#nuevo')
 
     conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(dictionary=True, buffered=True)
     try:
         if not unidad_id_s.isdigit():
             cur.execute("SELECT id FROM unidades_medida ORDER BY id LIMIT 1")
@@ -12839,25 +14936,25 @@ def catalogo_mp_nuevo():
                 flash("Unidad inválida.", "danger")
                 return redirect(url_for('catalogo_mp') + '#nuevo')
 
-        # Verificar duplicado EN ESTA EMPRESA
         cur.execute("""
-            SELECT id FROM producto_base 
-            WHERE UPPER(nombre)=UPPER(%s) AND empresa_id=%s 
+            SELECT id FROM producto_base
+            WHERE UPPER(nombre)=UPPER(%s) AND empresa_id=%s
             LIMIT 1
         """, (nombre, eid))
         row = cur.fetchone()
+
         if row:
             cur.execute("""
-                UPDATE producto_base SET activo=1, unidad_id=%s 
+                UPDATE producto_base SET activo=1, requiere_produccion=%s
                 WHERE id=%s AND empresa_id=%s
-            """, (unidad_id, row['id'], eid))
+            """, (requiere_produccion, row['id'], eid))
             flash("Producto base reactivado.", "info")
         else:
             cur.execute("""
-                INSERT INTO producto_base (empresa_id, nombre, unidad_id, activo) 
-                VALUES (%s, %s, %s, 1)
-            """, (eid, nombre, unidad_id))
-            flash("Producto base agregado.", "success")
+                INSERT INTO producto_base (empresa_id, nombre, activo, requiere_produccion)
+                VALUES (%s, %s, 1, %s)
+            """, (eid, nombre, requiere_produccion))
+            flash("✅ Producto base agregado.", "success")
 
         conn.commit()
     except Exception as e:
@@ -13919,112 +16016,6 @@ def facturacion_dashboard():
                           pendientes_recibir=pendientes_recibir)
 
 
-# ===== FACTURACIÓN B2B - NUEVA =====
-@app.route('/facturacion/b2b/nueva', methods=['GET', 'POST'])
-@require_login
-def facturacion_b2b_nueva():
-    """Crear nueva factura B2B"""
-    eid = g.empresa_id
-    uid = g.usuario_id
-    
-    conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
-    
-    if request.method == 'POST':
-        try:
-            empresa_receptora_id = int(request.form.get('empresa_receptora_id'))
-            subtotal = Decimal(request.form.get('subtotal', '0'))
-            iva = Decimal(request.form.get('iva', '0'))
-            total = Decimal(request.form.get('total', '0'))
-            forma_pago = request.form.get('forma_pago', 'Transferencia')
-            metodo_pago = request.form.get('metodo_pago', 'PUE')
-            fecha_vencimiento = request.form.get('fecha_vencimiento') or None
-            condiciones_pago = request.form.get('condiciones_pago', '')
-            
-            # Generar folio
-            cur.execute("""
-                SELECT COUNT(*) + 1 as siguiente 
-                FROM facturas_b2b 
-                WHERE empresa_emisora_id = %s
-            """, (eid,))
-            num = cur.fetchone()['siguiente']
-            folio = f"B2B-{eid}-{num:06d}"
-            
-            # Insertar factura
-            cur.execute("""
-                INSERT INTO facturas_b2b 
-                (empresa_emisora_id, empresa_receptora_id, folio, fecha_emision, fecha_vencimiento,
-                 subtotal, iva, total, forma_pago, metodo_pago, condiciones_pago, estado, emitida_por_usuario_id)
-                VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s, 'emitida', %s)
-            """, (eid, empresa_receptora_id, folio, fecha_vencimiento, subtotal, iva, total, 
-                  forma_pago, metodo_pago, condiciones_pago, uid))
-            factura_id = cur.lastrowid
-            
-            # Insertar detalle de productos
-            i = 0
-            while f'productos[{i}][mercancia_id]' in request.form:
-                mercancia_id = int(request.form.get(f'productos[{i}][mercancia_id]'))
-                descripcion = request.form.get(f'productos[{i}][descripcion]', '')
-                cantidad = Decimal(request.form.get(f'productos[{i}][cantidad]', '0'))
-                precio = Decimal(request.form.get(f'productos[{i}][precio]', '0'))
-                iva_rate = Decimal(request.form.get(f'productos[{i}][iva_rate]', '0.16'))
-                importe = Decimal(request.form.get(f'productos[{i}][importe]', '0'))
-                
-                cur.execute("""
-                    INSERT INTO facturas_b2b_detalle 
-                    (factura_id, mercancia_id, descripcion, cantidad_facturada, precio_unitario, iva_rate, importe)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (factura_id, mercancia_id, descripcion, cantidad, precio, iva_rate, importe))
-                i += 1
-            
-            # Crear notificación para el receptor
-            cur.execute("""
-                INSERT INTO facturas_notificaciones 
-                (empresa_destino_id, tipo_origen, origen_id, tipo_notificacion, mensaje)
-                VALUES (%s, 'b2b', %s, 'nueva', %s)
-            """, (empresa_receptora_id, factura_id, f'Nueva factura {folio} recibida'))
-            
-            conn.commit()
-            flash(f'✅ Factura {folio} emitida correctamente', 'success')
-            return redirect(url_for('facturacion_b2b_emitidas'))
-            
-        except Exception as e:
-            conn.rollback()
-            flash(f'❌ Error al emitir factura: {e}', 'danger')
-    
-    # GET: Mostrar formulario
-    try:
-        # Empresas disponibles (todas menos la actual)
-        cur.execute("""
-            SELECT id, nombre, rfc 
-            FROM empresas 
-            WHERE id != %s AND activo = 1
-            ORDER BY nombre
-        """, (eid,))
-        empresas_disponibles = cur.fetchall()
-        
-        # Productos de la empresa
-        cur.execute("""
-            SELECT id, nombre, precio_venta as precio 
-            FROM mercancia 
-            WHERE empresa_id = %s AND activo = 1
-            ORDER BY nombre
-        """, (eid,))
-        productos = cur.fetchall()
-        
-        # Empresa actual
-        cur.execute("SELECT nombre, rfc FROM empresas WHERE id = %s", (eid,))
-        empresa_actual = cur.fetchone()
-        
-    finally:
-        cur.close()
-        conn.close()
-    
-    return render_template('cobranza/b2b_nueva.html',
-                          empresas_disponibles=empresas_disponibles,
-                          productos=productos,
-                          empresa_actual=empresa_actual)
-
 
 # ===== FACTURACIÓN B2B - EMITIDAS =====
 @app.route('/facturacion/b2b/emitidas')
@@ -14141,175 +16132,6 @@ def facturacion_b2b_recibidas():
                           filtro_estado=filtro_estado,
                           conteo_pendientes=conteo_pendientes,
                           conteo_revision=conteo_revision)
-
-
-# ===== FACTURACIÓN B2B - RECIBIR (CHECKLIST) =====
-@app.route('/facturacion/b2b/recibir/<int:id>', methods=['GET', 'POST'])
-@require_login
-def facturacion_b2b_recibir(id):
-    """Checklist para recibir mercancía de factura B2B"""
-    eid = g.empresa_id
-    uid = g.usuario_id
-    
-    conn = conexion_db()
-    cur = conn.cursor(dictionary=True)
-    
-    try:
-        # Verificar que la factura es para esta empresa
-        cur.execute("""
-            SELECT f.*, e.nombre as proveedor_nombre
-            FROM facturas_b2b f
-            JOIN empresas e ON e.id = f.empresa_emisora_id
-            WHERE f.id = %s AND f.empresa_receptora_id = %s
-        """, (id, eid))
-        factura = cur.fetchone()
-        
-        if not factura:
-            flash('❌ Factura no encontrada', 'danger')
-            return redirect(url_for('facturacion_b2b_recibidas'))
-        
-        factura['fecha_fmt'] = factura['fecha_emision'].strftime('%d/%m/%Y') if factura['fecha_emision'] else ''
-        
-        if request.method == 'POST':
-            accion = request.form.get('accion', '')
-            tipo_recepcion = request.form.get('tipo_recepcion', 'completa')
-            notas_recepcion = request.form.get('notas_recepcion', '')
-            
-            hay_diferencias = False
-            
-            # Procesar cada item
-            cur.execute("SELECT id FROM facturas_b2b_detalle WHERE factura_id = %s", (id,))
-            items = cur.fetchall()
-            
-            for item in items:
-                item_id = item['id']
-                verificado = request.form.get(f'items[{item_id}][verificado]') == '1'
-                cantidad_recibida = request.form.get(f'items[{item_id}][cantidad_recibida]', '0')
-                notas = request.form.get(f'items[{item_id}][notas]', '')
-                tipo_diferencia = request.form.get(f'items[{item_id}][tipo_diferencia]', '')
-                
-                try:
-                    cantidad_recibida = Decimal(cantidad_recibida)
-                except:
-                    cantidad_recibida = Decimal('0')
-                
-                # Verificar si hay diferencia
-                cur.execute("SELECT cantidad_facturada FROM facturas_b2b_detalle WHERE id = %s", (item_id,))
-                det = cur.fetchone()
-                tiene_diferencia = abs(det['cantidad_facturada'] - cantidad_recibida) > Decimal('0.001')
-                
-                if tiene_diferencia:
-                    hay_diferencias = True
-                
-                cur.execute("""
-                    UPDATE facturas_b2b_detalle 
-                    SET verificado = %s, cantidad_recibida = %s, notas_verificacion = %s,
-                        tiene_diferencia = %s, tipo_diferencia = %s,
-                        verificado_por_usuario_id = %s, fecha_verificacion = NOW()
-                    WHERE id = %s
-                """, (verificado, cantidad_recibida, notas, tiene_diferencia, 
-                      tipo_diferencia if tiene_diferencia else None, uid, item_id))
-            
-            if accion == 'guardar_progreso':
-                # Solo guardar progreso, cambiar estado a en_revision
-                cur.execute("""
-                    UPDATE facturas_b2b 
-                    SET estado = 'en_revision', notas_recepcion = %s
-                    WHERE id = %s
-                """, (notas_recepcion, id))
-                conn.commit()
-                flash('✅ Progreso guardado', 'success')
-                return redirect(url_for('facturacion_b2b_recibir', id=id))
-            else:
-                # Confirmar recepción
-                estado_final = 'con_diferencias' if hay_diferencias else 'recibida'
-                
-                cur.execute("""
-                    UPDATE facturas_b2b 
-                    SET estado = %s, fecha_recepcion = NOW(), recibida_por_usuario_id = %s,
-                        notas_recepcion = %s
-                    WHERE id = %s
-                """, (estado_final, uid, notas_recepcion, id))
-                
-                # Crear cuenta por pagar
-                cur.execute("""
-                    INSERT INTO cuentas_por_pagar 
-                    (empresa_id, factura_b2b_id, proveedor_empresa_id, tipo_documento, 
-                     numero_documento, fecha_documento, fecha_vencimiento,
-                     monto_original, saldo, estado, autorizado_por_usuario_id, fecha_autorizacion)
-                    VALUES (%s, %s, %s, 'factura_b2b', %s, %s, %s, %s, %s, 'pendiente', %s, NOW())
-                """, (eid, id, factura['empresa_emisora_id'], factura['folio'], 
-                      factura['fecha_emision'], factura['fecha_vencimiento'],
-                      factura['total'], factura['total'], uid))
-                
-                # Crear entrada al inventario MP por cada item recibido
-                cur.execute("""
-                    SELECT d.mercancia_id, d.cantidad_recibida, d.descripcion
-                    FROM facturas_b2b_detalle d
-                    WHERE d.factura_id = %s AND d.verificado = 1 AND d.cantidad_recibida > 0
-                """, (id,))
-                items_recibidos = cur.fetchall()
-                
-                for item in items_recibidos:
-                    # Verificar si el producto existe en inventario MP
-                    cur.execute("""
-                        SELECT id FROM inventario_mp 
-                        WHERE mercancia_id = %s AND empresa_id = %s
-                    """, (item['mercancia_id'], eid))
-                    inv = cur.fetchone()
-                    
-                    if inv:
-                        # Actualizar existencia
-                        cur.execute("""
-                            UPDATE inventario_mp 
-                            SET cantidad = cantidad + %s, fecha_actualizacion = NOW()
-                            WHERE id = %s
-                        """, (item['cantidad_recibida'], inv['id']))
-                    else:
-                        # Crear registro en inventario
-                        cur.execute("""
-                            INSERT INTO inventario_mp (empresa_id, mercancia_id, cantidad, fecha_actualizacion)
-                            VALUES (%s, %s, %s, NOW())
-                        """, (eid, item['mercancia_id'], item['cantidad_recibida']))
-                    
-                    # Registrar movimiento
-                    cur.execute("""
-                        INSERT INTO movimientos_inventario 
-                        (empresa_id, mercancia_id, tipo_movimiento, cantidad, referencia, usuario_id, fecha)
-                        VALUES (%s, %s, 'entrada', %s, %s, %s, NOW())
-                    """, (eid, item['mercancia_id'], item['cantidad_recibida'], 
-                          f'Factura B2B: {factura["folio"]}', uid))
-                
-                # Notificar al emisor
-                cur.execute("""
-                    INSERT INTO facturas_notificaciones 
-                    (empresa_destino_id, tipo_origen, origen_id, tipo_notificacion, mensaje)
-                    VALUES (%s, 'b2b', %s, 'recibida', %s)
-                """, (factura['empresa_emisora_id'], id, 
-                      f'Factura {factura["folio"]} fue {"recibida con diferencias" if hay_diferencias else "recibida conforme"}'))
-                
-                conn.commit()
-                flash(f'✅ Factura recibida {"con diferencias" if hay_diferencias else "correctamente"}', 
-                      'warning' if hay_diferencias else 'success')
-                return redirect(url_for('facturacion_b2b_recibidas'))
-        
-        # GET: Mostrar checklist
-        cur.execute("""
-            SELECT d.*, m.nombre as mercancia_nombre
-            FROM facturas_b2b_detalle d
-            LEFT JOIN mercancia m ON m.id = d.mercancia_id
-            WHERE d.factura_id = %s
-            ORDER BY d.id
-        """, (id,))
-        detalle = cur.fetchall()
-        
-    finally:
-        cur.close()
-        conn.close()
-    
-    return render_template('cobranza/b2b_recibir.html',
-                          factura=factura,
-                          detalle=detalle)
 
 
 # ===== FACTURACIÓN B2B - VER DETALLE =====
@@ -15351,6 +17173,222 @@ def api_test_caja_venta_detalle():
 # Agregar a app.py
 # =============================================
 
+# ============================================================
+# RECIBIR FACTURA B2B (CHECKLIST)
+# ============================================================
+
+@app.route('/facturacion/b2b/nueva', methods=['GET', 'POST'])
+@require_login
+def facturacion_b2b_nueva():
+    """Emitir factura B2B directa (sin requerir orden de compra)"""
+    eid = g.empresa_id
+    uid = g.usuario_id
+    
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    if request.method == 'GET':
+        cursor.execute("""
+            SELECT id, nombre, rfc FROM empresas
+            WHERE id != %s AND activo = 1 ORDER BY nombre
+        """, (eid,))
+        empresas_disponibles = cursor.fetchall()
+        
+        cursor.execute("""
+            SELECT m.id, m.nombre,
+                   COALESCE(p.precio_manual, 0) as precio,
+                   COALESCE((
+                       SELECT SUM(dc.contenido_neto_total)
+                       FROM detalle_compra dc
+                       WHERE dc.mercancia_id = m.id AND dc.empresa_id = %s
+                   ), 0) -
+                   COALESCE((
+                       SELECT SUM(im.cantidad)
+                       FROM inventario_movimientos_mp im
+                       WHERE im.mp_id = m.id AND im.empresa_id = %s
+                       AND im.tipo_movimiento = 'salida'
+                   ), 0) as stock
+            FROM mercancia m
+            LEFT JOIN pt_precios p ON p.mercancia_id = m.id AND p.empresa_id = %s
+            WHERE m.tipo_inventario_id = 3
+              AND m.empresa_id = %s
+              AND m.activo = 1
+            ORDER BY m.nombre
+        """, (eid, eid, eid, eid))
+        productos = cursor.fetchall()
+        
+        cursor.execute("SELECT nombre, rfc FROM empresas WHERE id = %s", (eid,))
+        empresa_actual = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        return render_template(
+            'cobranza/b2b_nueva.html',
+            empresas_disponibles=empresas_disponibles,
+            productos=productos,
+            empresa_actual=empresa_actual
+        )
+    
+    # POST
+    try:
+        empresa_receptora_id = int(request.form.get('empresa_receptora_id'))
+        forma_pago = request.form.get('forma_pago', 'Transferencia')
+        metodo_pago = request.form.get('metodo_pago', 'PUE')
+        condiciones_pago = request.form.get('condiciones_pago', '')
+        fecha_vencimiento = request.form.get('fecha_vencimiento') or None
+        
+        subtotal = Decimal(request.form.get('subtotal', '0'))
+        iva = Decimal(request.form.get('iva', '0'))
+        total = Decimal(request.form.get('total', '0'))
+        
+        productos_data = {}
+        for key in request.form.keys():
+            if key.startswith('productos['):
+                import re
+                match = re.match(r'productos\[(\d+)\]\[(\w+)\]', key)
+                if match:
+                    idx = int(match.group(1))
+                    campo = match.group(2)
+                    if idx not in productos_data:
+                        productos_data[idx] = {}
+                    productos_data[idx][campo] = request.form.get(key)
+        
+        if not productos_data:
+            flash('⚠️ Debes agregar al menos un producto', 'warning')
+            cursor.close()
+            db.close()
+            return redirect(url_for('facturacion_b2b_nueva'))
+        
+        # Validar stock real por producto
+        for idx, prod in productos_data.items():
+            mercancia_id = int(prod['mercancia_id'])
+            cantidad = Decimal(prod['cantidad'])
+            
+            cursor.execute("""
+                SELECT COALESCE(SUM(dc.contenido_neto_total), 0) as entradas
+                FROM detalle_compra dc
+                WHERE dc.mercancia_id = %s AND dc.empresa_id = %s
+            """, (mercancia_id, eid))
+            entradas = float(cursor.fetchone()['entradas'])
+            
+            cursor.execute("""
+                SELECT COALESCE(SUM(im.cantidad), 0) as salidas
+                FROM inventario_movimientos_mp im
+                WHERE im.mp_id = %s AND im.empresa_id = %s
+                AND im.tipo_movimiento = 'salida'
+            """, (mercancia_id, eid))
+            salidas = float(cursor.fetchone()['salidas'])
+            
+            stock = entradas - salidas
+            
+            if stock < float(cantidad):
+                cursor.execute("SELECT nombre FROM mercancia WHERE id = %s", (mercancia_id,))
+                m = cursor.fetchone()
+                flash(f'⚠️ Stock insuficiente para {m["nombre"] if m else mercancia_id} (disponible: {stock:.2f})', 'warning')
+                cursor.close()
+                db.close()
+                return redirect(url_for('facturacion_b2b_nueva'))
+        
+        # Generar folio
+        folio = generar_folio_factura_b2b(eid)
+        
+        # Insertar factura
+        cursor.execute("""
+            INSERT INTO facturas_b2b (
+                empresa_emisora_id, empresa_receptora_id, folio, fecha_emision,
+                fecha_vencimiento, subtotal, iva, total, forma_pago, metodo_pago,
+                condiciones_pago, estado, estado_almacen, estado_reparto,
+                estado_entrega, emitida_por_usuario_id
+            ) VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s,
+                'emitida', 'pendiente', 'pendiente', 'pendiente', %s)
+        """, (eid, empresa_receptora_id, folio, fecha_vencimiento,
+              float(subtotal), float(iva), float(total),
+              forma_pago, metodo_pago, condiciones_pago, uid))
+        
+        factura_id = cursor.lastrowid
+        
+        # Insertar detalles y registrar salidas
+        for idx, prod in productos_data.items():
+            mercancia_id = int(prod['mercancia_id'])
+            descripcion = prod['descripcion']
+            cantidad = Decimal(prod['cantidad'])
+            precio = Decimal(prod['precio'])
+            iva_rate = Decimal(prod.get('iva_rate', '0.16'))
+            importe = Decimal(prod['importe'])
+            
+            cursor.execute("""
+                INSERT INTO facturas_b2b_detalle (
+                    factura_id, empresa_id, mercancia_id, descripcion,
+                    cantidad_facturada, precio_unitario, iva_rate, importe
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (factura_id, eid, mercancia_id, descripcion,
+                  float(cantidad), float(precio), float(iva_rate), float(importe)))
+            
+            detalle_id = cursor.lastrowid
+            
+            # Registrar salida en inventario_movimientos_mp
+            cursor.execute("""
+                INSERT INTO inventario_movimientos_mp
+                (mp_id, fecha, tipo_movimiento, cantidad, costo_unitario,
+                costo_total, referencia_tipo, referencia_id, observaciones,
+                usuario_id, empresa_id)
+                VALUES (%s, CURDATE(), 'salida', %s, %s, %s,
+                'factura_b2b', %s, %s, %s, %s)
+            """, (mercancia_id, float(cantidad), float(precio),
+                  float(cantidad) * float(precio),
+                  factura_id, f'Factura B2B: {folio}', uid, eid))
+            
+            # Checklist
+            for rol in ['almacen_proveedor', 'reparto', 'almacen_cliente']:
+                empresa_checklist = eid if rol != 'almacen_cliente' else empresa_receptora_id
+                cursor.execute("""
+                    INSERT INTO factura_b2b_checklist
+                    (factura_id, detalle_id, rol, empresa_id, verificado)
+                    VALUES (%s, %s, %s, %s, 0)
+                """, (factura_id, detalle_id, rol, empresa_checklist))
+        
+        # Tracking
+        cursor.execute("""
+            INSERT INTO factura_b2b_tracking
+            (factura_id, estado_nuevo, usuario_id, usuario_nombre, rol, empresa_id, accion)
+            VALUES (%s, 'emitida', %s, %s, 'ventas', %s, 'Factura emitida')
+        """, (factura_id, uid, g.usuario_nombre, eid))
+        
+        cursor.execute("SELECT nombre FROM empresas WHERE id = %s", (empresa_receptora_id,))
+        cliente = cursor.fetchone()
+        
+        crear_alerta_b2b(empresa_id=eid, rol_destino='almacen', tipo='preparacion',
+            titulo=f'Preparar Factura {folio}',
+            mensaje=f'Cliente: {cliente["nombre"]} - ${float(total):.2f}',
+            referencia_tipo='factura_b2b', referencia_id=factura_id, usuario_id=uid)
+        
+        crear_alerta_b2b(empresa_id=empresa_receptora_id, rol_destino='supervisor',
+            tipo='factura', titulo=f'Factura Recibida {folio}',
+            mensaje=f'Nueva factura por ${float(total):.2f}',
+            referencia_tipo='factura_b2b', referencia_id=factura_id, usuario_id=uid)
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        flash(f'✅ Factura {folio} emitida correctamente', 'success')
+        return redirect(url_for('ver_factura_b2b', factura_id=factura_id))
+        
+    except Exception as e:
+        db.rollback()
+        cursor.close()
+        db.close()
+        print(f"❌ Error al emitir factura: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'❌ Error al emitir factura: {str(e)}', 'danger')
+        return redirect(url_for('facturacion_b2b_nueva'))
+
+# ============================================================
+# RUTAS AUXILIARES PARA FACTURACIÓN
+# ============================================================
+
 @app.route('/b2b/reportes')
 @require_login
 def reportes_b2b():
@@ -16151,6 +18189,7 @@ def historial_pagos_b2b():
 # =============================================
 
 @app.route('/b2b/dashboard')
+
 @require_login
 def dashboard_b2b():
     """Dashboard resumen del módulo B2B"""
@@ -16465,102 +18504,6 @@ def api_test_ping_secure():
 # ÓRDENES DE COMPRA AUTOMÁTICAS
 # ============================================================
 
-@app.route('/admin/ordenes_auto')
-@require_login
-def ordenes_auto_lista():
-    """Lista de órdenes de compra automáticas"""
-    eid = g.empresa_id
-    
-    db = conexion_db()
-    cursor = db.cursor(dictionary=True)
-    
-    try:
-        # Obtener órdenes
-        cursor.execute("""
-            SELECT 
-                o.id,
-                o.folio,
-                o.fecha_generacion,
-                o.tipo_orden,
-                o.estado,
-                o.subtotal,
-                o.iva,
-                o.total,
-                o.solicitado_por,
-                r.nombre as revisado_por,
-                o.fecha_revision,
-                a.nombre as aprobado_por,
-                o.fecha_aprobacion,
-                COUNT(d.id) as total_items,
-                SUM(CASE WHEN d.estado = 'completado' THEN 1 ELSE 0 END) as items_completados
-            FROM ordenes_compra_automaticas o
-            LEFT JOIN usuarios r ON r.id = o.revisado_por_usuario_id
-            LEFT JOIN usuarios a ON a.id = o.aprobado_por_usuario_id
-            LEFT JOIN ordenes_compra_automaticas_detalle d ON d.orden_id = o.id
-            WHERE o.empresa_id = %s
-            GROUP BY o.id
-            ORDER BY o.fecha_generacion DESC
-            LIMIT 50
-        """, (eid,))
-        
-        ordenes = cursor.fetchall()
-        
-    finally:
-        cursor.close()
-        db.close()
-    
-    return render_template('ordenes_auto/lista.html', ordenes=ordenes)
-
-
-@app.route('/admin/ordenes_auto/<int:orden_id>')
-@require_login
-def ordenes_auto_detalle(orden_id):
-    """Ver detalle de una orden automática"""
-    eid = g.empresa_id
-    uid = g.usuario_id
-    
-    db = conexion_db()
-    cursor = db.cursor(dictionary=True)
-    
-    try:
-        # Obtener orden
-        cursor.execute("""
-            SELECT o.*,
-                   r.nombre as revisado_por_nombre,
-                   a.nombre as aprobado_por_nombre
-            FROM ordenes_compra_automaticas o
-            LEFT JOIN usuarios r ON r.id = o.revisado_por_usuario_id
-            LEFT JOIN usuarios a ON a.id = o.aprobado_por_usuario_id
-            WHERE o.id = %s AND o.empresa_id = %s
-        """, (orden_id, eid))
-        
-        orden = cursor.fetchone()
-        
-        if not orden:
-            flash('Orden no encontrada', 'danger')
-            return redirect(url_for('ordenes_auto_lista'))
-        
-        # Obtener items
-        cursor.execute("""
-            SELECT 
-                d.*,
-                m.nombre as mercancia_nombre,
-                pb.nombre as producto_base_nombre
-            FROM ordenes_compra_automaticas_detalle d
-            LEFT JOIN mercancia m ON m.id = d.mercancia_id
-            LEFT JOIN producto_base pb ON pb.id = d.producto_base_id
-            WHERE d.orden_id = %s
-            ORDER BY d.dias_pendiente DESC, d.criterio
-        """, (orden_id,))
-        
-        items = cursor.fetchall()
-        
-    finally:
-        cursor.close()
-        db.close()
-    
-    return render_template('ordenes_auto/detalle.html', orden=orden, items=items)
-
 
 @app.route('/admin/ordenes_auto/<int:orden_id>/revisar', methods=['POST'])
 @require_login
@@ -16654,6 +18597,1300 @@ def ordenes_auto_generar_manual():
     except Exception as e:
         flash(f'Error al generar orden: {e}', 'danger')
         return redirect(url_for('ordenes_auto_lista'))
+
+
+@app.route('/proveedores', methods=['GET', 'POST'])
+@require_login
+def proveedores():
+    """Lista y registro de proveedores"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    
+    if request.method == 'POST':
+        nombre = (request.form.get('nombre') or '').strip()
+        rfc = (request.form.get('rfc') or '').strip().upper()
+        tipo = request.form.get('tipo', 'nacional')  # 'nacional' o 'extranjero'
+        direccion = (request.form.get('direccion') or '').strip()
+        ciudad = (request.form.get('ciudad') or '').strip()
+        telefono = (request.form.get('telefono') or '').strip()
+        
+        if not nombre:
+            flash('El nombre del proveedor es obligatorio', 'warning')
+            return redirect(url_for('proveedores'))
+        
+        try:
+            # Validar duplicado
+            cursor.execute("""
+                SELECT id, nombre FROM proveedores 
+                WHERE UPPER(TRIM(nombre)) = UPPER(%s) AND empresa_id = %s
+            """, (nombre, eid))
+            duplicado = cursor.fetchone()
+            
+            if duplicado:
+                flash(f"⚠️ Ya existe el proveedor '{duplicado['nombre']}'", 'warning')
+                return redirect(url_for('proveedores'))
+            
+            # CREAR SUBCUENTA CONTABLE AUTOMÁTICA
+            subcuenta_id = None
+            try:
+                # Determinar cuenta padre según tipo
+                if tipo == 'extranjero':
+                    cuenta_padre_codigo = '2101-002'
+                    cuenta_padre_id = 227
+                    prefijo_nombre = "PROV EXT"
+                else:
+                    cuenta_padre_codigo = '2101-001'
+                    cuenta_padre_id = 226
+                    prefijo_nombre = "PROV NAL"
+                
+                # Buscar última subcuenta bajo esta cuenta padre
+                cursor.execute("""
+                    SELECT codigo FROM cuentas_contables 
+                    WHERE empresa_id = %s AND codigo LIKE %s
+                    ORDER BY codigo DESC LIMIT 1
+                """, (eid, f'{cuenta_padre_codigo}-%'))
+                ultima = cursor.fetchone()
+                
+                if ultima:
+                    ultimo_num = int(ultima['codigo'].split('-')[-1])
+                    siguiente_num = ultimo_num + 1
+                else:
+                    siguiente_num = 1
+                
+                # Crear código: 2101-001-001, 2101-001-002, etc.
+                nuevo_codigo = f"{cuenta_padre_codigo}-{siguiente_num:03d}"
+                nuevo_nombre = f"{prefijo_nombre} - {nombre}"
+                
+                # Insertar subcuenta contable
+                cursor.execute("""
+                    INSERT INTO cuentas_contables 
+                    (contratante_id, empresa_id, codigo, nombre, tipo, naturaleza, nivel, padre_id, permite_subcuentas)
+                    VALUES (%s, %s, %s, %s, 'Pasivo', 'Acreedora', 5, %s, 0)
+                """, (g.contratante_id, eid, nuevo_codigo, nuevo_nombre, cuenta_padre_id))
+                
+                conn.commit()
+                subcuenta_id = cursor.lastrowid
+                print(f"✅ Subcuenta proveedor creada: {nuevo_codigo} - {nuevo_nombre} (ID: {subcuenta_id})")
+            except Exception as e:
+                print(f"⚠️ Error creando subcuenta proveedor: {e}")
+            
+            # Insertar proveedor
+            cursor.execute("""
+                INSERT INTO proveedores 
+                (contratante_id, empresa_id, nombre, rfc, direccion, ciudad, telefono, subcuenta_id, activo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1)
+            """, (g.contratante_id, eid, nombre, rfc, direccion, ciudad, telefono, subcuenta_id))
+            
+            conn.commit()
+            flash(f'✅ Proveedor "{nombre}" registrado correctamente', 'success')
+            
+        except Exception as e:
+            conn.rollback()
+            flash(f'❌ Error al registrar proveedor: {e}', 'danger')
+        finally:
+            cursor.close()
+            conn.close()
+        
+        return redirect(url_for('proveedores'))
+    
+    # GET - Mostrar lista
+    try:
+        cursor.execute("""
+            SELECT 
+                p.id, p.nombre, p.rfc, p.direccion, p.ciudad, p.telefono, p.activo,
+                cc.codigo as codigo_cuenta,
+                cc.nombre as nombre_cuenta
+            FROM proveedores p
+            LEFT JOIN cuentas_contables cc ON p.subcuenta_id = cc.id
+            WHERE p.empresa_id = %s
+            ORDER BY p.nombre
+        """, (eid,))
+        proveedores = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+        
+    return render_template('compras/proveedores.html', proveedores=proveedores)
+
+
+@app.route('/proveedores/<int:id>', methods=['POST'])
+@require_login
+def actualizar_proveedor(id):
+    """Actualizar proveedor existente"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    
+    try:
+        nombre = (request.form.get('nombre') or '').strip()
+        rfc = (request.form.get('rfc') or '').strip().upper()
+        direccion = (request.form.get('direccion') or '').strip()
+        ciudad = (request.form.get('ciudad') or '').strip()
+        telefono = (request.form.get('telefono') or '').strip()
+        
+        cursor.execute("""
+            UPDATE proveedores
+            SET nombre = %s, rfc = %s, direccion = %s, ciudad = %s, telefono = %s
+            WHERE id = %s AND empresa_id = %s
+        """, (nombre, rfc, direccion, ciudad, telefono, id, eid))
+        
+        conn.commit()
+        flash('✅ Proveedor actualizado correctamente', 'success')
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f'❌ Error al actualizar: {e}', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return redirect(url_for('proveedores'))
+
+
+@app.route('/proveedores/<int:id>/eliminar', methods=['POST'])
+@require_login
+def eliminar_proveedor(id):
+    """Eliminar proveedor (solo si no tiene compras)"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    
+    try:
+        # Verificar si tiene compras
+        cursor.execute("""
+            SELECT COUNT(*) as total FROM compras 
+            WHERE proveedor_id = %s AND empresa_id = %s
+        """, (id, eid))
+        compras = cursor.fetchone()
+        
+        if compras['total'] > 0:
+            flash('⚠️ No se puede eliminar: el proveedor tiene compras registradas', 'warning')
+            return redirect(url_for('proveedores'))
+        
+        # Eliminar
+        cursor.execute("""
+            DELETE FROM proveedores 
+            WHERE id = %s AND empresa_id = %s
+        """, (id, eid))
+        
+        conn.commit()
+        flash('✅ Proveedor eliminado', 'success')
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f'❌ Error al eliminar: {e}', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return redirect(url_for('proveedores'))
+
+@app.route('/admin/configurar_inventarios', methods=['GET', 'POST'])
+@require_login
+def configurar_inventarios():
+    """Configurar mínimos y máximos de inventario por materia prima y PT"""
+    eid = g.empresa_id
+
+    if session.get('rol') != 'admin':
+        flash('Acceso denegado.', 'danger')
+        return redirect('/login')
+
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+
+    if request.method == 'POST':
+        try:
+            tipo = request.form.get('tipo', 'mp')
+
+            if tipo == 'mp':
+                producto_base_ids = request.form.getlist('producto_base_id[]')
+                minimos = request.form.getlist('minimo[]')
+                maximos = request.form.getlist('maximo[]')
+
+                for i, pb_id in enumerate(producto_base_ids):
+                    if not pb_id or not pb_id.isdigit():
+                        continue
+                    try:
+                        minimo_val = Decimal(minimos[i]) if i < len(minimos) and minimos[i] else Decimal('0')
+                        maximo_val = Decimal(maximos[i]) if i < len(maximos) and maximos[i] else Decimal('0')
+                    except:
+                        continue
+                    cursor.execute("""
+                        UPDATE producto_base
+                        SET minimo_existencia = %s, maximo_existencia = %s
+                        WHERE id = %s AND empresa_id = %s
+                    """, (minimo_val, maximo_val, int(pb_id), eid))
+
+            elif tipo == 'pt':
+                mercancia_ids = request.form.getlist('mercancia_id[]')
+                minimos_pt = request.form.getlist('minimo_pt[]')
+                maximos_pt = request.form.getlist('maximo_pt[]')
+
+                for i, m_id in enumerate(mercancia_ids):
+                    if not m_id or not m_id.isdigit():
+                        continue
+                    try:
+                        minimo_val = Decimal(minimos_pt[i]) if i < len(minimos_pt) and minimos_pt[i] else Decimal('0')
+                        maximo_val = Decimal(maximos_pt[i]) if i < len(maximos_pt) and maximos_pt[i] else Decimal('0')
+                    except:
+                        continue
+                    cursor.execute("""
+                        UPDATE mercancia
+                        SET minimo_existencia = %s, maximo_existencia = %s
+                        WHERE id = %s AND empresa_id = %s
+                    """, (minimo_val, maximo_val, int(m_id), eid))
+
+            conn.commit()
+            flash('✅ Configuración actualizada correctamente.', 'success')
+
+        except Exception as e:
+            conn.rollback()
+            flash(f'❌ Error al actualizar: {e}', 'danger')
+        finally:
+            cursor.close()
+            conn.close()
+
+        return redirect(url_for('configurar_inventarios'))
+
+    # GET
+    try:
+        cursor.execute("""
+            SELECT
+                pb.id,
+                pb.nombre as materia_prima,
+                pb.minimo_existencia,
+                pb.maximo_existencia,
+                um.nombre as unidad,
+                COALESCE((
+                    SELECT SUM(dc.contenido_neto_total)
+                    FROM detalle_compra dc
+                    JOIN mercancia m2 ON m2.id = dc.mercancia_id
+                    WHERE m2.producto_base_id = pb.id AND dc.empresa_id = %s
+                ), 0) -
+                COALESCE((
+                    SELECT SUM(im.cantidad)
+                    FROM inventario_movimientos_mp im
+                    JOIN mercancia m3 ON m3.id = im.mp_id
+                    WHERE m3.producto_base_id = pb.id AND im.empresa_id = %s
+                    AND im.tipo_movimiento = 'salida'
+                ), 0) as stock_actual,
+                CASE
+                    WHEN pb.minimo_existencia = 0 THEN 'sin_configurar'
+                    WHEN (
+                        COALESCE((SELECT SUM(dc.contenido_neto_total) FROM detalle_compra dc JOIN mercancia m2 ON m2.id = dc.mercancia_id WHERE m2.producto_base_id = pb.id AND dc.empresa_id = %s), 0) -
+                        COALESCE((SELECT SUM(im.cantidad) FROM inventario_movimientos_mp im JOIN mercancia m3 ON m3.id = im.mp_id WHERE m3.producto_base_id = pb.id AND im.empresa_id = %s AND im.tipo_movimiento = 'salida'), 0)
+                    ) < pb.minimo_existencia THEN 'bajo_minimo'
+                    WHEN (
+                        COALESCE((SELECT SUM(dc.contenido_neto_total) FROM detalle_compra dc JOIN mercancia m2 ON m2.id = dc.mercancia_id WHERE m2.producto_base_id = pb.id AND dc.empresa_id = %s), 0) -
+                        COALESCE((SELECT SUM(im.cantidad) FROM inventario_movimientos_mp im JOIN mercancia m3 ON m3.id = im.mp_id WHERE m3.producto_base_id = pb.id AND im.empresa_id = %s AND im.tipo_movimiento = 'salida'), 0)
+                    ) <= (pb.minimo_existencia * 1.2) THEN 'punto_reorden'
+                    ELSE 'ok'
+                END as estado
+            FROM producto_base pb
+            LEFT JOIN mercancia m ON m.producto_base_id = pb.id AND m.empresa_id = %s
+            LEFT JOIN unidades_medida um ON um.id = m.unidad_id
+            WHERE pb.empresa_id = %s AND pb.activo = 1
+            GROUP BY pb.id, pb.nombre, pb.minimo_existencia, pb.maximo_existencia, um.nombre
+            ORDER BY pb.nombre
+        """, (eid, eid, eid, eid, eid, eid, eid, eid))
+        productos = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT
+                m.id,
+                m.nombre,
+                m.minimo_existencia,
+                m.maximo_existencia,
+                COALESCE((
+                    SELECT SUM(im.cantidad)
+                    FROM inventario_movimientos_pt im
+                    WHERE im.pt_id = m.id
+                    AND im.empresa_id = %s
+                    AND im.tipo_movimiento = 'entrada'
+                ), 0) -
+                COALESCE((
+                    SELECT SUM(im.cantidad)
+                    FROM inventario_movimientos_pt im
+                    WHERE im.pt_id = m.id
+                    AND im.empresa_id = %s
+                    AND im.tipo_movimiento = 'salida'
+                ), 0) as stock_actual,
+                CASE
+                    WHEN m.minimo_existencia = 0 THEN 'sin_configurar'
+                    WHEN (
+                        COALESCE((SELECT SUM(im.cantidad) FROM inventario_movimientos_pt im WHERE im.pt_id = m.id AND im.empresa_id = %s AND im.tipo_movimiento = 'entrada'), 0) -
+                        COALESCE((SELECT SUM(im.cantidad) FROM inventario_movimientos_pt im WHERE im.pt_id = m.id AND im.empresa_id = %s AND im.tipo_movimiento = 'salida'), 0)
+                    ) < m.minimo_existencia THEN 'bajo_minimo'
+                    WHEN (
+                        COALESCE((SELECT SUM(im.cantidad) FROM inventario_movimientos_pt im WHERE im.pt_id = m.id AND im.empresa_id = %s AND im.tipo_movimiento = 'entrada'), 0) -
+                        COALESCE((SELECT SUM(im.cantidad) FROM inventario_movimientos_pt im WHERE im.pt_id = m.id AND im.empresa_id = %s AND im.tipo_movimiento = 'salida'), 0)
+                    ) <= (m.minimo_existencia * 1.2) THEN 'punto_reorden'
+                    ELSE 'ok'
+                END as estado
+            FROM mercancia m
+            WHERE m.tipo_inventario_id = 3
+              AND m.empresa_id = %s
+              AND m.activo = 1
+            ORDER BY m.nombre
+        """, (eid, eid, eid, eid, eid, eid, eid))
+        productos_pt = cursor.fetchall()
+
+    finally:
+        cursor.close()
+        conn.close()
+
+    return render_template('admin/configurar_inventarios.html',
+        productos=productos,
+        productos_pt=productos_pt
+    )
+
+@app.route('/admin/ordenes_auto')
+@require_login
+def ordenes_auto_lista():
+    """Lista de órdenes de compra automáticas"""
+    eid = g.empresa_id
+    
+    if session.get('rol') != 'admin':
+        flash('Acceso denegado.', 'danger')
+        return redirect('/login')
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                o.id,
+                o.folio,
+                DATE_FORMAT(o.fecha_generacion, '%%d %%b %%Y %%H:%%i') as fecha_generacion_fmt,
+                o.fecha_generacion,
+                o.estado,
+                o.solicitado_por,
+                o.subtotal,
+                o.iva,
+                o.total,
+                COUNT(d.id) as total_items,
+                SUM(CASE WHEN d.criterio = 'mp_bajo_minimo' THEN 1 ELSE 0 END) as items_urgentes
+            FROM ordenes_compra_automaticas o
+            LEFT JOIN ordenes_compra_automaticas_detalle d ON d.orden_id = o.id
+            WHERE o.empresa_id = %s
+            GROUP BY o.id, o.folio, o.fecha_generacion, o.estado, o.solicitado_por, o.subtotal, o.iva, o.total
+            ORDER BY o.id DESC
+        """, (eid,))
+        ordenes = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template('admin/ordenes_auto_lista.html', ordenes=ordenes)
+
+
+@app.route('/admin/ordenes_auto/<int:orden_id>')
+@require_login
+def ordenes_auto_detalle(orden_id):
+    """Detalle de orden de compra automática"""
+    eid = g.empresa_id
+    
+    if session.get('rol') != 'admin':
+        flash('Acceso denegado.', 'danger')
+        return redirect('/login')
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    
+    try:
+        # Encabezado
+        cursor.execute("""
+            SELECT 
+                o.*,
+                DATE_FORMAT(o.fecha_generacion, '%%d %%b %%Y %%H:%%i') as fecha_generacion_fmt,
+                u_rev.nombre as revisado_por_nombre,
+                u_apro.nombre as aprobado_por_nombre
+            FROM ordenes_compra_automaticas o
+            LEFT JOIN usuarios u_rev ON u_rev.id = o.revisado_por_usuario_id
+            LEFT JOIN usuarios u_apro ON u_apro.id = o.aprobado_por_usuario_id
+            WHERE o.id = %s AND o.empresa_id = %s
+        """, (orden_id, eid))
+        orden = cursor.fetchone()
+        
+        if not orden:
+            flash('Orden no encontrada.', 'warning')
+            return redirect(url_for('ordenes_auto_lista'))
+        
+        # Detalle
+        cursor.execute("""
+            SELECT 
+                d.*,
+                pb.nombre as materia_prima,
+                m.nombre as presentacion_compra,
+                um.nombre as unidad
+            FROM ordenes_compra_automaticas_detalle d
+            LEFT JOIN producto_base pb ON pb.id = d.producto_base_id
+            LEFT JOIN mercancia m ON m.id = d.mercancia_id
+            LEFT JOIN unidades_medida um ON um.id = m.unidad_id
+            WHERE d.orden_id = %s
+            ORDER BY 
+                CASE d.criterio 
+                    WHEN 'mp_bajo_minimo' THEN 1 
+                    WHEN 'mp_punto_reorden' THEN 2 
+                    ELSE 3 
+                END,
+                pb.nombre
+        """, (orden_id,))
+        detalles = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template('admin/ordenes_auto_detalle.html', orden=orden, detalles=detalles)
+
+
+@app.route('/admin/ordenes_auto/<int:orden_id>/aprobar', methods=['POST'])
+@require_login
+def ordenes_auto_aprobar(orden_id):
+    """Aprobar orden automática"""
+    eid = g.empresa_id
+    uid = g.usuario_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    
+    try:
+        cursor.execute("""
+            UPDATE ordenes_compra_automaticas
+            SET estado = 'aprobada',
+                aprobado_por_usuario_id = %s,
+                fecha_aprobacion = NOW()
+            WHERE id = %s AND empresa_id = %s
+        """, (uid, orden_id, eid))
+        
+        conn.commit()
+        flash('✅ Orden aprobada correctamente. Ahora puedes convertirla en compra real.', 'success')
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f'❌ Error: {e}', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return redirect(url_for('ordenes_auto_detalle', orden_id=orden_id))
+
+
+@app.route('/confirmar_empresa/<token>')
+def confirmar_empresa(token):
+    """Confirmar invitación a empresa adicional"""
+    db = conexion_db()
+    cursor = db.cursor(dictionary=True)
+    
+    try:
+        # Buscar invitación
+        cursor.execute("""
+            SELECT ue.*, u.nombre, u.correo, e.nombre as empresa_nombre
+            FROM usuarios_empresas ue
+            JOIN usuarios u ON u.id = ue.usuario_id
+            JOIN empresas e ON e.id = ue.empresa_id
+            WHERE ue.token_confirmacion = %s
+              AND ue.fecha_token_expira > NOW()
+              AND ue.estado = 'pendiente'
+        """, (token,))
+        
+        invitacion = cursor.fetchone()
+        
+        if not invitacion:
+            flash('❌ Invitación inválida o expirada.', 'danger')
+            return redirect(url_for('login'))
+        
+        # Activar usuario en empresa
+        cursor.execute("""
+            UPDATE usuarios_empresas
+            SET estado = 'activo',
+                fecha_activacion = NOW(),
+                token_confirmacion = NULL
+            WHERE id = %s
+        """, (invitacion['id'],))
+        
+        db.commit()
+        
+        flash(f'✅ ¡Bienvenido a {invitacion["empresa_nombre"]}! Ahora puedes acceder con tu contraseña.', 'success')
+        return redirect(url_for('login'))
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error confirmando empresa: {e}")
+        flash('❌ Error al procesar confirmación.', 'danger')
+        return redirect(url_for('login'))
+    finally:
+        cursor.close()
+        db.close()
+
+
+@app.route('/admin/empresas/nueva', methods=['GET', 'POST'])
+@require_login
+def admin_nueva_empresa():
+    """Admin/Contratante crea nueva empresa en su grupo"""
+    uid = g.usuario_id
+    
+    # Solo contratantes o admins de rango alto
+    if not g.contratante_id and g.rango > 2:
+        flash('No tienes permiso para agregar empresas.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    if request.method == 'POST':
+        try:
+            nombre = request.form.get('nombre', '').strip()
+            rfc = request.form.get('rfc', '').strip().upper()
+            direccion = request.form.get('direccion', '').strip()
+            telefono = request.form.get('telefono', '').strip()
+            email = request.form.get('email', '').strip()
+            uso_descripcion = request.form.get('uso_descripcion', '').strip()
+            responsable_nombre = request.form.get('responsable_nombre', '').strip()
+            responsable_puesto = request.form.get('responsable_puesto', '').strip()
+            
+            if not nombre:
+                flash('El nombre de la empresa es obligatorio.', 'warning')
+                return redirect(url_for('admin_nueva_empresa'))
+            
+            # Crear empresa
+            cursor.execute("""
+                INSERT INTO empresas 
+                (nombre, rfc, direccion, telefono, email, uso_descripcion, responsable_nombre, responsable_puesto, activo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1)
+            """, (nombre, rfc, direccion, telefono, email, uso_descripcion, responsable_nombre, responsable_puesto))
+            
+            nueva_empresa_id = cursor.lastrowid
+            
+            # Crear configuración inicial
+            cursor.execute("""
+                INSERT INTO empresa_configuracion 
+                (empresa_id, configuracion_completada)
+                VALUES (%s, 0)
+            """, (nueva_empresa_id,))
+            
+            # Asignar al contratante actual
+            contratante_id = g.contratante_id
+            cursor.execute("""
+                UPDATE empresas 
+                SET contratante_id = %s 
+                WHERE id = %s
+            """, (contratante_id, nueva_empresa_id))
+            
+            # Agregar empresa a la lista de acceso del usuario actual
+            cursor.execute("""
+                SELECT empresas_acceso FROM usuarios WHERE id = %s
+            """, (uid,))
+            usuario_data = cursor.fetchone()
+            
+            empresas_acceso = []
+            if usuario_data and usuario_data['empresas_acceso']:
+                try:
+                    empresas_acceso = json.loads(usuario_data['empresas_acceso'])
+                except:
+                    empresas_acceso = []
+            
+            if nueva_empresa_id not in empresas_acceso:
+                empresas_acceso.append(nueva_empresa_id)
+            
+            cursor.execute("""
+                UPDATE usuarios 
+                SET empresas_acceso = %s 
+                WHERE id = %s
+            """, (json.dumps(empresas_acceso), uid))
+            
+            conn.commit()
+            
+            flash(f'✅ Empresa "{nombre}" creada exitosamente. Ahora puedes cambiar a ella desde el menú.', 'success')
+            return redirect(url_for('admin_listar_empresas'))
+            
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ Error creando empresa: {e}")
+            import traceback
+            traceback.print_exc()
+            flash(f'❌ Error: {str(e)}', 'danger')
+        finally:
+            cursor.close()
+            conn.close()
+    
+    # GET - Mostrar formulario
+    cursor.close()
+    conn.close()
+    
+    return render_template('admin/nueva_empresa.html')
+
+
+@app.route('/admin/empresas')
+@require_login
+def admin_listar_empresas():
+    """Lista empresas del grupo del contratante"""
+    contratante_id = g.contratante_id
+    
+    if not contratante_id:
+        flash('No tienes un grupo de empresas.', 'warning')
+        return redirect(url_for('dashboard'))
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                e.id,
+                e.nombre,
+                e.rfc,
+                e.activo,
+                e.uso_descripcion,
+                e.responsable_nombre,
+                e.responsable_puesto,
+                COUNT(DISTINCT u.id) as total_usuarios
+            FROM empresas e
+            LEFT JOIN usuarios u ON u.empresa_id = e.id AND u.activo = 1
+            WHERE e.contratante_id = %s
+            GROUP BY e.id, e.nombre, e.rfc, e.activo
+            ORDER BY e.nombre
+        """, (contratante_id,))
+        empresas = cursor.fetchall()  # ← FALTABA ESTA LÍNEA
+        
+    finally:
+        cursor.close()
+        conn.close()
+
+    return render_template('admin/listar_empresas.html', empresas=empresas)
+
+@app.route('/almacen/recepciones')
+@require_login
+def almacen_recepciones():
+    """Lista de compras pendientes de recepción en almacén"""
+    eid = g.empresa_id
+    uid = g.usuario_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Compras pendientes o en recepción
+        cursor.execute("""
+            SELECT 
+                c.id,
+                c.fecha,
+                DATE_FORMAT(c.fecha, '%d %b %y') as fecha_fmt,
+                c.numero_factura,
+                COALESCE(p.nombre, c.proveedor) as proveedor,
+                c.subtotal,
+                c.estado,
+                COUNT(DISTINCT dc.id) as total_items,
+                COALESCE(SUM(dc.unidades), 0) as total_unidades
+            FROM compras c
+            LEFT JOIN proveedores p ON c.proveedor_id = p.id
+            LEFT JOIN detalle_compra dc ON dc.compra_id = c.id
+            WHERE c.empresa_id = %s 
+            AND c.estado IN ('pendiente', 'en_recepcion')
+            GROUP BY c.id
+            ORDER BY c.fecha DESC, c.id DESC
+        """, (eid,))
+        compras_pendientes = cursor.fetchall()
+        
+        # Compras ya recibidas (últimas 10)
+        cursor.execute("""
+            SELECT 
+                c.id,
+                c.fecha,
+                DATE_FORMAT(c.fecha, '%%d %%b %%Y') as fecha_fmt,
+                c.numero_factura,
+                COALESCE(p.nombre, c.proveedor) as proveedor,
+                cr.fecha_recepcion,
+                DATE_FORMAT(cr.fecha_recepcion, '%%d %%b %%Y %%H:%%i') as recepcion_fmt,
+                u.nombre as recibido_por
+            FROM compras c
+            LEFT JOIN proveedores p ON c.proveedor_id = p.id
+            LEFT JOIN compras_recepciones cr ON cr.compra_id = c.id
+            LEFT JOIN usuarios u ON u.id = cr.recibido_por
+            WHERE c.empresa_id = %s 
+            AND c.estado = 'recibida'
+            ORDER BY cr.fecha_recepcion DESC
+            LIMIT 10
+        """, (eid,))
+        compras_recibidas = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template('almacen/recepciones_lista.html',
+                          compras_pendientes=compras_pendientes,
+                          compras_recibidas=compras_recibidas)
+
+
+@app.route('/almacen/recibir/<int:compra_id>', methods=['GET', 'POST'])
+@require_login
+def almacen_recibir_compra(compra_id):
+    """Recibir compra en almacén con asignación de ubicaciones"""
+    eid = g.empresa_id
+    uid = g.usuario_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    if request.method == 'POST':
+        try:
+            # Capturar datos
+            cantidades_recibidas = request.form.getlist('cantidad_recibida[]')
+            ubicaciones = request.form.getlist('ubicacion_id[]')
+            detalle_ids = request.form.getlist('detalle_id[]')
+            notas_generales = request.form.get('notas', '').strip()
+            
+            # Validar compra pertenece a empresa
+            cursor.execute("""
+                SELECT id, estado FROM compras 
+                WHERE id = %s AND empresa_id = %s
+            """, (compra_id, eid))
+            compra = cursor.fetchone()
+            
+            if not compra:
+                flash('Compra no encontrada.', 'danger')
+                return redirect(url_for('almacen_recepciones'))
+            
+            if compra['estado'] == 'recibida':
+                flash('Esta compra ya fue recibida.', 'warning')
+                return redirect(url_for('almacen_recepciones'))
+            
+            # Crear registro de recepción
+            cursor.execute("""
+                INSERT INTO compras_recepciones
+                (compra_id, empresa_id, recibido_por, notas, estado)
+                VALUES (%s, %s, %s, %s, 'completa')
+            """, (compra_id, eid, uid, notas_generales))
+            recepcion_id = cursor.lastrowid
+            
+            # Procesar cada item
+            for i, detalle_id in enumerate(detalle_ids):
+                cantidad_recibida = float(cantidades_recibidas[i] if i < len(cantidades_recibidas) else 0)
+                ubicacion_id = int(ubicaciones[i]) if i < len(ubicaciones) and ubicaciones[i] else None
+                
+                if cantidad_recibida <= 0:
+                    continue
+                
+                # Obtener info del detalle
+                cursor.execute("""
+                    SELECT mercancia_id, contenido_neto_total
+                    FROM detalle_compra
+                    WHERE id = %s AND empresa_id = %s
+                """, (detalle_id, eid))
+                detalle = cursor.fetchone()
+                
+                if not detalle:
+                    continue
+                
+                # Registrar recepción del item
+                cursor.execute("""
+                    INSERT INTO compras_recepciones_detalle
+                    (recepcion_id, detalle_compra_id, mercancia_id, empresa_id, 
+                     cantidad_esperada, cantidad_recibida, ubicacion_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (recepcion_id, detalle_id, detalle['mercancia_id'], eid,
+                      detalle['contenido_neto_total'], cantidad_recibida, ubicacion_id))
+                
+                # Actualizar ubicación en inventario si se asignó
+                if ubicacion_id:
+                    cursor.execute("""
+                        UPDATE inventario
+                        SET ubicacion_id = %s
+                        WHERE empresa_id = %s AND mercancia_id = %s
+                    """, (ubicacion_id, eid, detalle['mercancia_id']))
+            
+            # Actualizar estado de compra
+            cursor.execute("""
+                UPDATE compras
+                SET estado = 'recibida'
+                WHERE id = %s
+            """, (compra_id,))
+            
+            conn.commit()
+            
+            flash(f'✅ Compra #{compra_id} recibida exitosamente en almacén.', 'success')
+            return redirect(url_for('almacen_recepciones'))
+            
+        except Exception as e:
+            conn.rollback()
+            print(f"Error en recepción: {e}")
+            import traceback
+            traceback.print_exc()
+            flash(f'Error: {str(e)}', 'danger')
+            return redirect(url_for('almacen_recepciones'))
+        finally:
+            cursor.close()
+            conn.close()
+    
+    # GET - Cargar datos para formulario
+    try:
+        # Info de la compra
+        cursor.execute("""
+            SELECT 
+                c.id,
+                c.fecha,
+                c.numero_factura,
+                COALESCE(p.nombre, c.proveedor) as proveedor,
+                c.estado
+            FROM compras c
+            LEFT JOIN proveedores p ON c.proveedor_id = p.id
+            WHERE c.id = %s AND c.empresa_id = %s
+        """, (compra_id, eid))
+        compra = cursor.fetchone()
+        
+        if not compra:
+            flash('Compra no encontrada.', 'danger')
+            return redirect(url_for('almacen_recepciones'))
+        
+        # Detalle de productos
+        cursor.execute("""
+            SELECT 
+                dc.id,
+                dc.mercancia_id,
+                m.nombre as producto,
+                dc.unidades,
+                dc.contenido_neto_total,
+                um.nombre as unidad_medida
+            FROM detalle_compra dc
+            LEFT JOIN mercancia m ON m.id = dc.mercancia_id
+            LEFT JOIN unidades_medida um ON um.id = m.unidad_id
+            WHERE dc.compra_id = %s AND dc.empresa_id = %s
+        """, (compra_id, eid))
+        detalles = cursor.fetchall()
+        
+        # Ubicaciones disponibles generadas en almacenes
+        cursor.execute("""
+            SELECT 
+                uv.id, 
+                uv.codigo, 
+                uv.nombre,
+                uv.almacen_id,
+                a.nombre as almacen_nombre,
+                ae.nombre as elemento_nombre,
+                ae.tipo as elemento_tipo,
+                CONCAT(a.nombre, ' → ', ae.nombre, ' → ', uv.codigo) as descripcion_completa
+            FROM ubicaciones_valores uv
+            LEFT JOIN almacenes a ON a.id = uv.almacen_id
+            LEFT JOIN almacenes_elementos ae ON ae.id = uv.elemento_id
+            WHERE uv.empresa_id = %s 
+            AND uv.activo = 1
+            AND uv.almacen_id IS NOT NULL
+            ORDER BY a.nombre, ae.nombre, uv.codigo
+        """, (eid,))
+        ubicaciones = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template('almacen/recibir_compra.html',
+                          compra=compra,
+                          detalles=detalles,
+                          ubicaciones=ubicaciones)
+
+
+# ========== GESTIÓN DE ALMACENES Y MAPEO VISUAL ==========
+
+@app.route('/almacen/configuracion')
+@require_login
+def almacen_configuracion():
+    """Lista de almacenes configurados"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                a.*,
+                COUNT(DISTINCT ae.id) as total_elementos,
+                COUNT(DISTINCT uv.id) as total_ubicaciones
+            FROM almacenes a
+            LEFT JOIN almacenes_elementos ae ON ae.almacen_id = a.id
+            LEFT JOIN ubicaciones_valores uv ON uv.almacen_id = a.id
+            WHERE a.empresa_id = %s
+            GROUP BY a.id
+            ORDER BY a.nombre
+        """, (eid,))
+        almacenes = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template('almacen/configuracion.html', almacenes=almacenes)
+
+
+@app.route('/almacen/nuevo', methods=['GET', 'POST'])
+@require_login
+def almacen_nuevo():
+    """Crear nuevo almacén"""
+    eid = g.empresa_id
+    uid = g.usuario_id
+    
+    if request.method == 'POST':
+        conn = conexion_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            nombre = request.form.get('nombre', '').strip()
+            codigo = request.form.get('codigo', '').strip()
+            tipo = request.form.get('tipo', 'bodega')
+            ancho = float(request.form.get('ancho', 0))
+            largo = float(request.form.get('largo', 0))
+            alto = float(request.form.get('alto', 0))
+            descripcion = request.form.get('descripcion', '').strip()
+
+            tamano_cuadrante_str = request.form.get('tamano_cuadrante', '').strip()
+            tamano_cuadrante = float(tamano_cuadrante_str) if tamano_cuadrante_str else 1.0
+            
+            if not nombre:
+                flash('El nombre del almacén es obligatorio.', 'danger')
+                return redirect(url_for('almacen_nuevo'))
+            
+            cursor.execute("""
+                INSERT INTO almacenes
+                (empresa_id, nombre, codigo, tipo, ancho_metros, largo_metros, alto_metros, tamano_cuadrante, descripcion)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (eid, nombre, codigo, tipo, ancho, largo, alto, tamano_cuadrante, descripcion))
+            
+            almacen_id = cursor.lastrowid
+            conn.commit()
+            
+            flash(f'✅ Almacén "{nombre}" creado exitosamente.', 'success')
+            return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+            
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error: {str(e)}', 'danger')
+            return redirect(url_for('almacen_nuevo'))
+        finally:
+            cursor.close()
+            conn.close()
+    
+    return render_template('almacen/nuevo_almacen.html')
+
+
+@app.route('/almacen/<int:almacen_id>/editor', methods=['GET', 'POST'])
+@require_login
+def almacen_editor(almacen_id):
+    """Editor visual del layout del almacén"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    if request.method == 'POST':
+        try:
+            # Guardar elemento nuevo
+            tipo = request.form.get('tipo')
+            nombre = request.form.get('nombre', '').strip()
+            codigo = request.form.get('codigo', '').strip()
+            ancho = float(request.form.get('ancho', 0))
+            largo = float(request.form.get('largo', 0))
+            alto = float(request.form.get('alto', 0))
+            # Capturar cuadrante
+            cuadrante_codigo = request.form.get('cuadrante', '').strip()
+
+            if cuadrante_codigo:
+                primer_cuadrante = cuadrante_codigo.split(',')[0].strip() if cuadrante_codigo else 'A1'
+                cuadrante_fila = primer_cuadrante[0] if primer_cuadrante else 'A'
+                cuadrante_columna = int(primer_cuadrante[1:]) if len(primer_cuadrante) > 1 else 1
+                
+                # Obtener info del almacén
+                cursor.execute("""
+                    SELECT tamano_cuadrante FROM almacenes WHERE id = %s
+                """, (almacen_id,))
+                alm = cursor.fetchone()
+                tamano_cuad = alm['tamano_cuadrante'] or 1.0
+                
+                # Calcular X/Y
+                columna_num = cuadrante_columna - 1
+                fila_num = ord(cuadrante_fila.upper()) - ord('A')
+                pos_x = columna_num * tamano_cuad
+                pos_y = fila_num * tamano_cuad
+            else:
+                pos_x = 0
+                pos_y = 0
+                cuadrante_fila = 'A'
+                cuadrante_columna = 1
+            niveles = int(request.form.get('numero_niveles', 1))
+            compartimentos = int(request.form.get('compartimentos_por_nivel', 1))
+            color = request.form.get('color_hex', '#3498db')
+            
+            cursor.execute("""
+                INSERT INTO almacenes_elementos
+                (almacen_id, empresa_id, tipo, nombre, codigo, ancho_metros, largo_metros, 
+                 alto_metros, posicion_x, posicion_y, numero_niveles, compartimentos_por_nivel, color_hex)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (almacen_id, eid, tipo, nombre, codigo, ancho, largo, alto, pos_x, pos_y, niveles, compartimentos, color))
+            
+            elemento_id = cursor.lastrowid
+            
+            # Generar ubicaciones automáticamente
+            for nivel in range(1, niveles + 1):
+                for comp in range(1, compartimentos + 1):
+                    ubicacion_codigo = f"{codigo}-N{nivel}-C{comp}"
+                    ubicacion_nombre = f"{nombre} - Nivel {nivel} - Compartimento {comp}"
+                    
+                    cursor.execute("""
+                        INSERT INTO ubicaciones_valores
+                        (empresa_id, almacen_id, elemento_id, nivel, compartimento, codigo, nombre)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (eid, almacen_id, elemento_id, nivel, comp, ubicacion_codigo, ubicacion_nombre))
+            
+            conn.commit()
+            
+            flash(f'✅ Elemento "{nombre}" agregado con {niveles * compartimentos} ubicaciones.', 'success')
+            return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+            
+        except Exception as e:
+            conn.rollback()
+            flash(f'Error: {str(e)}', 'danger')
+            return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+        finally:
+            cursor.close()
+            conn.close()
+    
+    # GET
+    try:
+        # Info del almacén
+        cursor.execute("""
+            SELECT * FROM almacenes 
+            WHERE id = %s AND empresa_id = %s
+        """, (almacen_id, eid))
+        almacen = cursor.fetchone()
+        
+        if not almacen:
+            flash('Almacén no encontrado.', 'danger')
+            return redirect(url_for('almacen_configuracion'))
+        
+        # Elementos del almacén
+        cursor.execute("""
+            SELECT * FROM almacenes_elementos
+            WHERE almacen_id = %s
+            ORDER BY id
+        """, (almacen_id,))
+        elementos = cursor.fetchall()
+        
+        # Ubicaciones generadas
+        cursor.execute("""
+            SELECT uv.*, ae.nombre as elemento_nombre, ae.tipo as elemento_tipo
+            FROM ubicaciones_valores uv
+            LEFT JOIN almacenes_elementos ae ON ae.id = uv.elemento_id
+            WHERE uv.almacen_id = %s
+            ORDER BY uv.codigo
+        """, (almacen_id,))
+        ubicaciones = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template('almacen/editor.html',
+                          almacen=almacen,
+                          elementos=elementos,
+                          ubicaciones=ubicaciones)
+
+@app.route('/almacen/<int:almacen_id>/elemento/<int:elemento_id>/editar', methods=['POST'])
+@require_login
+def almacen_editar_elemento(almacen_id, elemento_id):
+    """Editar elemento existente"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Validar que el elemento pertenece al almacén de la empresa
+        cursor.execute("""
+            SELECT * FROM almacenes_elementos
+            WHERE id = %s AND almacen_id = %s AND empresa_id = %s
+        """, (elemento_id, almacen_id, eid))
+        elemento = cursor.fetchone()
+        
+        if not elemento:
+            flash('Elemento no encontrado.', 'danger')
+            return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+        
+        # Capturar datos del formulario
+        nombre = request.form.get('nombre', '').strip()
+        ancho = float(request.form.get('ancho', 0))
+        largo = float(request.form.get('largo', 0))
+        alto = float(request.form.get('alto', 0))
+        niveles = int(request.form.get('numero_niveles', 1))
+        compartimentos = int(request.form.get('compartimentos_por_nivel', 1))
+        color = request.form.get('color_hex', '#3498db')
+        
+        # Capturar cuadrante
+        cuadrante_codigo = request.form.get('cuadrante', '').strip()
+        
+        if cuadrante_codigo:
+            primer_cuadrante = cuadrante_codigo.split(',')[0].strip()
+            cuadrante_fila = primer_cuadrante[0]
+            cuadrante_columna = int(primer_cuadrante[1:]) if len(primer_cuadrante) > 1 else 1
+            
+            # Obtener info del almacén
+            cursor.execute("""
+                SELECT tamano_cuadrante FROM almacenes WHERE id = %s
+            """, (almacen_id,))
+            alm = cursor.fetchone()
+            tamano_cuad = alm['tamano_cuadrante'] or 1.0
+            
+            # Calcular X/Y
+            columna_num = cuadrante_columna - 1
+            fila_num = ord(cuadrante_fila.upper()) - ord('A')
+            pos_x = columna_num * tamano_cuad
+            pos_y = fila_num * tamano_cuad
+        else:
+            pos_x = elemento['posicion_x']
+            pos_y = elemento['posicion_y']
+            cuadrante_fila = elemento['cuadrante_fila'] or 'A'
+            cuadrante_columna = elemento['cuadrante_columna'] or 1
+        
+        # ACTUALIZAR elemento (no insertar)
+        cursor.execute("""
+            UPDATE almacenes_elementos
+            SET nombre = %s, ancho_metros = %s, largo_metros = %s, alto_metros = %s,
+                posicion_x = %s, posicion_y = %s, cuadrante_fila = %s, cuadrante_columna = %s,
+                cuadrante_codigo = %s, numero_niveles = %s, compartimentos_por_nivel = %s, color_hex = %s
+            WHERE id = %s
+        """, (nombre, ancho, largo, alto, pos_x, pos_y, cuadrante_fila, cuadrante_columna,
+              cuadrante_codigo, niveles, compartimentos, color, elemento_id))
+        
+        # Si cambiaron niveles o compartimentos, regenerar ubicaciones
+        niveles_anterior = elemento['numero_niveles']
+        comp_anterior = elemento['compartimentos_por_nivel']
+        
+        if niveles != niveles_anterior or compartimentos != comp_anterior:
+            # Eliminar ubicaciones antiguas
+            cursor.execute("""
+                DELETE FROM ubicaciones_valores
+                WHERE elemento_id = %s
+            """, (elemento_id,))
+            
+            # Regenerar ubicaciones
+            codigo = elemento['codigo']
+            for nivel in range(1, niveles + 1):
+                for comp in range(1, compartimentos + 1):
+                    ubicacion_codigo = f"{codigo}-N{nivel}-C{comp}"
+                    ubicacion_nombre = f"{nombre} - Nivel {nivel} - Compartimento {comp}"
+                    
+                    cursor.execute("""
+                        INSERT INTO ubicaciones_valores
+                        (empresa_id, almacen_id, elemento_id, nivel, compartimento, codigo, nombre)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (eid, almacen_id, elemento_id, nivel, comp, ubicacion_codigo, ubicacion_nombre))
+        
+        conn.commit()
+        
+        flash(f'✅ Elemento "{nombre}" actualizado exitosamente.', 'success')
+        return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"Error editando elemento: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error: {str(e)}', 'danger')
+        return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/almacen/<int:almacen_id>/elemento/<int:elemento_id>/eliminar', methods=['POST'])
+@require_login
+def almacen_eliminar_elemento(almacen_id, elemento_id):
+    """Eliminar elemento (y sus ubicaciones)"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Verificar que no haya inventario asignado a ubicaciones de este elemento
+        cursor.execute("""
+            SELECT COUNT(*) as total
+            FROM inventario i
+            JOIN ubicaciones_valores uv ON uv.id = i.ubicacion_id
+            WHERE uv.elemento_id = %s AND i.disponible_base > 0
+        """, (elemento_id,))
+        resultado = cursor.fetchone()
+        
+        if resultado['total'] > 0:
+            flash(f'⚠️ No se puede eliminar: hay {resultado["total"]} ubicaciones con inventario asignado.', 'warning')
+            return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+        
+        # Eliminar elemento (las ubicaciones se eliminan en cascada por ON DELETE CASCADE)
+        cursor.execute("""
+            DELETE FROM almacenes_elementos
+            WHERE id = %s AND almacen_id = %s AND empresa_id = %s
+        """, (elemento_id, almacen_id, eid))
+        
+        conn.commit()
+        
+        flash('✅ Elemento eliminado exitosamente.', 'success')
+        return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error: {str(e)}', 'danger')
+        return redirect(url_for('almacen_editor', almacen_id=almacen_id))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/almacen/<int:almacen_id>/mapa')
+@require_login
+def almacen_mapa_visual(almacen_id):
+    """Vista del mapa visual 2D del almacén"""
+    eid = g.empresa_id
+    
+    conn = conexion_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Info del almacén
+        cursor.execute("""
+            SELECT * FROM almacenes 
+            WHERE id = %s AND empresa_id = %s
+        """, (almacen_id, eid))
+        almacen = cursor.fetchone()
+        
+        if not almacen:
+            flash('Almacén no encontrado.', 'danger')
+            return redirect(url_for('almacen_configuracion'))
+        
+        # Elementos con ocupación
+        cursor.execute("""
+            SELECT 
+                ae.*,
+                COUNT(DISTINCT uv.id) as total_ubicaciones,
+                SUM(CASE WHEN i.disponible_base > 0 THEN 1 ELSE 0 END) as ubicaciones_ocupadas
+            FROM almacenes_elementos ae
+            LEFT JOIN ubicaciones_valores uv ON uv.elemento_id = ae.id
+            LEFT JOIN inventario i ON i.ubicacion_id = uv.id
+            WHERE ae.almacen_id = %s
+            GROUP BY ae.id
+        """, (almacen_id,))
+        elementos = cursor.fetchall()
+        
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return render_template('almacen/mapa_visual.html',
+                          almacen=almacen,
+                          elementos=elementos)
 
 
 # ===== INICIAR SERVIDOR =====

@@ -1,4 +1,4 @@
-{% extends "sidebar.html" %}
+{% extends "sidebar_multitenant.html" %}
 {% block title %}Nueva Orden de Producción{% endblock %}
 
 {% block content %}
@@ -68,10 +68,12 @@
     </div>
   </div>
 
-  <div class="alert alert-info mt-4">
-    <i class="fas fa-info-circle"></i>
-    <strong>Nota:</strong> Si no ves tu producto en la lista, primero debes 
-    <a href="{{ url_for('wip.procesos_list') }}">configurar su proceso de producción</a>.
+  <div class="alert alert-danger d-flex align-items-center gap-2">
+      <i class="fas fa-info-circle"></i>
+      <span><strong>Nota:</strong> Si no ves tu producto en la lista, primero debes 
+      <a href="{{ url_for('wip.procesos_list') }}" class="btn btn-sm btn-light">
+          <i class="fas fa-cogs me-1"></i> Configurar proceso de producción
+      </a></span>
   </div>
 </div>
 
