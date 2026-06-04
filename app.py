@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import re
 from functools import wraps
 import bcrypt
-from flask_mysqldb import MySQL
+# from flask_mysqldb import MySQL
 import secrets
 import mysql.connector
 from mysql.connector import Error
@@ -42,7 +42,7 @@ load_dotenv()
 app = Flask(__name__)
 app.config.from_object(Config)
 
-mysql = MySQL(app)
+# mysql = MySQL(app)
 
 # ===== IMPORTS DE MÓDULOS LOCALES =====
 from db import conexion_db
