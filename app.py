@@ -24,6 +24,11 @@ import sys
 import json
 from utils.decorators import require_login
 import os
+from barcode import EAN13, UPCA
+from barcode.writer import ImageWriter
+import io
+import base64
+
 
 # ===== DETECTAR ENTORNO (PythonAnywhere vs Local) =====
 if '/home/' in os.getcwd():
@@ -230,9 +235,76 @@ def eliminar_logo_empresa(empresa_id):
     
     return redirect(url_for('gestionar_logos_empresas'))
 
+from barcode import EAN13
+from barcode.writer import ImageWriter
+import io
+import base64
 
+@app.route('/pt/codigos-barras')
+@require_login
+def pt_codigos_barras():
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT id, nombre, codigo_barras, seccion
+            FROM mercancia
+            WHERE empresa_id = %s AND activo = 1 AND tipo_inventario_id = 3
+            ORDER BY seccion, nombre
+        """, (eid,))
+        productos = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
 
+    for p in productos:
+        codigo = p['codigo_barras']
+        p['barcode_img'] = None
+        if codigo:
+            try:
+                buffer = io.BytesIO()
+                if len(codigo) == 13:
+                    EAN13(codigo, writer=ImageWriter()).write(buffer)
+                elif len(codigo) == 12:
+                    UPCA(codigo, writer=ImageWriter()).write(buffer)
+                elif len(codigo) == 8:
+                    from barcode import Code128
+                    Code128(codigo, writer=ImageWriter()).write(buffer)
+                p['barcode_img'] = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            except:
+                p['barcode_img'] = None
 
+    return render_template('inventarios/PT/codigos_barras.html', productos=productos)
+
+@app.route('/api/mercancia/generar-codigo/<int:mercancia_id>', methods=['POST'])
+@require_login
+def api_generar_codigo(mercancia_id):
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT id, codigo_barras FROM mercancia 
+            WHERE id = %s AND empresa_id = %s
+        """, (mercancia_id, eid))
+        m = cur.fetchone()
+        if not m:
+            return jsonify({'ok': False, 'error': 'Producto no encontrado'})
+        if m['codigo_barras']:
+            return jsonify({'ok': True, 'codigo': m['codigo_barras']})
+        codigo = generar_codigo_ean13(eid, mercancia_id)
+        cur.execute("""
+            UPDATE mercancia SET codigo_barras = %s 
+            WHERE id = %s AND empresa_id = %s
+        """, (codigo, mercancia_id, eid))
+        conn.commit()
+        return jsonify({'ok': True, 'codigo': codigo})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    finally:
+        cur.close()
+        conn.close()
 #============================
 #  ADMINISTRACION DASHBOARD
 #============================
@@ -2395,6 +2467,8 @@ def reset_password(token):
         conn.close()
     
     return render_template('auth/reset_password.html', token=token)
+
+
 
 # =============================================
 # 1. REGISTRO DE USUARIOS (Admin agrega correos/nombres)

@@ -1,0 +1,101 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h4><i class="fas fa-barcode text-primary"></i> Códigos de Barras - Productos Terminados</h4>
+    <button class="btn btn-primary" onclick="window.print()">
+      <i class="fas fa-print"></i> Imprimir etiquetas
+    </button>
+  </div>
+
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      .etiqueta { page-break-inside: avoid; }
+    }
+    .etiqueta {
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+      background: white;
+    }
+    .etiqueta img { max-width: 100%; height: auto; }
+    .etiqueta .nombre { font-size: 0.75rem; font-weight: bold; margin-top: 4px; }
+    .etiqueta .codigo { font-size: 0.65rem; color: #6c757d; }
+    .etiqueta .seccion { font-size: 0.65rem; }
+  </style>
+
+  <!-- Filtro por sección -->
+  <div class="mb-3 no-print">
+    <select id="filtroSeccion" class="form-select w-auto">
+      <option value="">Todas las secciones</option>
+      {% set secciones = productos | map(attribute='seccion') | unique | list %}
+      {% for s in secciones %}
+        {% if s %}
+          <option value="{{ s }}">{{ s }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="row g-3" id="contenedor-etiquetas">
+    {% for p in productos %}
+    <div class="col-6 col-md-3 col-lg-2 etiqueta-wrapper" data-seccion="{{ p.seccion or '' }}">
+      <div class="etiqueta">
+        {% if p.barcode_img %}
+          <img src="data:image/png;base64,{{ p.barcode_img }}" alt="{{ p.codigo_barras }}">
+        {% else %}
+            <div class="text-muted py-3">
+                <i class="fas fa-barcode fa-2x"></i>
+                <div class="small mt-1">Sin código</div>
+                <button class="btn btn-sm btn-outline-primary mt-2 no-print btn-generar"
+                        data-id="{{ p.id }}"
+                        data-nombre="{{ p.nombre }}">
+                <i class="fas fa-magic"></i> Generar
+                </button>
+            </div>
+        {% endif %}
+        <div class="nombre">{{ p.nombre }}</div>
+        <div class="codigo">{{ p.codigo_barras or 'Sin código' }}</div>
+        {% if p.seccion %}
+          <span class="badge bg-secondary seccion">{{ p.seccion }}</span>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="col-12">
+      <div class="alert alert-info">No hay productos terminados registrados.</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+document.getElementById('filtroSeccion').addEventListener('change', function() {
+  const val = this.value;
+  document.querySelectorAll('.etiqueta-wrapper').forEach(el => {
+    if (!val || el.dataset.seccion === val) {
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+});
+document.querySelectorAll('.btn-generar').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const id = this.dataset.id;
+    fetch(`/api/mercancia/generar-codigo/${id}`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          alert(`Código generado: ${data.codigo}`);
+          location.reload();
+        } else {
+          alert('Error al generar código');
+        }
+      });
+  });
+});
+</script>
+{% endblock %}
