@@ -4835,6 +4835,8 @@ def _pt_items_all():
         SELECT
             m.id,
             m.nombre,
+            m.codigo_barras,
+            m.seccion,
             COALESCE(m.orden, 9999) AS orden,
             COALESCE(p.modo, 'auto') AS modo,
             COALESCE(p.markup_pct, 0.30) AS markup_pct,
@@ -4883,6 +4885,8 @@ def _pt_items_all():
         items.append({
             "id": mid,
             "nombre": nombre,
+            "codigo_barras": r.get("codigo_barras") or "",
+            "seccion": r.get("seccion") or "",
             "alias": alias,
             "label": label,
             "modo": modo,
@@ -6380,6 +6384,8 @@ def pt_catalogo_guardar():
     markups        = request.form.getlist("manual_pct[]")
     precios_manual = request.form.getlist("precio_manual[]")
     aliases        = request.form.getlist("alias[]")
+    codigos_barras = request.form.getlist("codigo_barras[]")
+    secciones = request.form.getlist("seccion[]")
 
     print("=" * 60)
     print("🔍 DEBUG pt_catalogo_guardar  EID=", eid)
@@ -6394,6 +6400,8 @@ def pt_catalogo_guardar():
 
         modo  = (modos[i] if i < len(modos) else "auto") or "auto"
         alias = (aliases[i].strip() or None) if i < len(aliases) else None
+        codigo_barras = (codigos_barras[i].strip() or None) if i < len(codigos_barras) else None
+        seccion = (secciones[i].strip() or None) if i < len(secciones) else None
 
         # % manual (texto → Decimal fraccional). Si vacío ⇒ 0
         mk_raw = markups[i].strip() if i < len(markups) else ""
@@ -6431,6 +6439,25 @@ def pt_catalogo_guardar():
             str(markup_pct),
             str(precio_manual) if precio_manual is not None else None,
             alias
+        ))
+        cur.execute("""
+            UPDATE mercancia 
+            SET codigo_barras = %s, seccion = %s
+            WHERE id = %s AND empresa_id = %s
+        """, (codigo_barras, seccion, mid, eid))
+
+        cur.execute("""
+            INSERT INTO bitacora_precios_pt
+            (empresa_id, mercancia_id, modo, markup_pct, precio_manual, precio_final, usuario_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (
+            eid,
+            mid,
+            modo,
+            str(markup_pct),
+            str(precio_manual) if precio_manual is not None else None,
+            str(pm_val) if pm_val is not None else str((d(str(costo_pt(mid))) * (d("1") + markup_pct)).quantize(d("0.01"))),
+            g.usuario_id
         ))
 
     conn.commit()
@@ -13873,6 +13900,27 @@ def nueva_compra():
                       productos=productos,
                       cuentas_gastos=cuentas_gastos)
         
+@app.route('/api/mercancia/barcode/<codigo>')
+@require_login
+def api_mercancia_barcode(codigo):
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True, buffered=True)
+    try:
+        cur.execute("""
+            SELECT id, nombre, seccion, precio_venta
+            FROM mercancia
+            WHERE codigo_barras = %s AND empresa_id = %s AND activo = 1
+            LIMIT 1
+        """, (codigo, eid))
+        m = cur.fetchone()
+        if m:
+            return jsonify({'encontrado': True, 'id': m['id'], 'nombre': m['nombre'], 'seccion': m['seccion'] or ''})
+        return jsonify({'encontrado': False})
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route('/detalle_compra/<int:id>')
 @require_login
 def detalle_compra(id):
@@ -14227,7 +14275,16 @@ def check_producto_api(nombre):
 
 #   COMPRAS - MERCANCIA  #
 
-
+def generar_codigo_ean13(empresa_id, mercancia_id):
+    """Genera código EAN-13 interno con prefijo 200"""
+    base = f"200{empresa_id:03d}{mercancia_id:06d}"
+    base = base[:12]
+    total = 0
+    for i, digit in enumerate(base):
+        n = int(digit)
+        total += n * (1 if i % 2 == 0 else 3)
+    digito_verificador = (10 - (total % 10)) % 10
+    return base + str(digito_verificador)
 
 
 # 1) LISTAR / CREAR MERCANCÍA
@@ -14389,6 +14446,12 @@ def mercancia():
                   cuenta_padre_id, subcuenta_id, catalogo_id, producto_base_id, 
                   str(minimo_existencia), str(maximo_existencia)))
             mid = cursor.lastrowid
+
+            if not codigo_barras:
+                codigo_barras = generar_codigo_ean13(eid, mid)
+                cursor.execute("""
+                    UPDATE mercancia SET codigo_barras = %s WHERE id = %s
+                """, (codigo_barras, mid))
 
             cursor.execute("""
                 INSERT IGNORE INTO inventario_mp

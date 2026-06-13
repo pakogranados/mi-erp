@@ -63,7 +63,9 @@
         <table id="tabla-productos" class="table table-sm align-middle">
           <thead class="table-light">
             <tr>
+              <th>Código de Barras</th>
               <th>Producto</th>
+              <th>Sección</th>
               <th class="text-end">Unidades</th>
               <th class="text-end">Precio unitario</th>
               <th class="text-end">Importe</th>
@@ -338,9 +340,16 @@
     tr.className = 'fila-producto';
     tr.innerHTML = `
       <td>
+        <input type="text" name="codigo_barras[]" class="form-control codigo-barras" placeholder="Escanea o escribe" autocomplete="off">
+      </td>
+      <td>
         <input type="text" name="mercancia_nombre[]" list="d_mercancia" class="form-control prod" required>
         <input type="hidden" name="mercancia_id[]" class="mercancia_id">
+        <input type="hidden" name="mercancia_seccion[]" class="mercancia_seccion">
         <small class="text-danger msg-validacion"></small>
+      </td>
+      <td>
+        <span class="seccion-badge badge bg-secondary"></span>
       </td>
       <td>
         <input type="number" name="unidades[]" class="form-control unidades text-end" step="any" inputmode="decimal" min="0" required>
@@ -409,5 +418,42 @@
   btnAddGasto.addEventListener('click', () => {
     addRowGasto();
   });
+  function buscarPorCodigoBarras(codigoInput) {
+    const codigo = codigoInput.value.trim();
+    if (!codigo) return;
+
+    const tr = codigoInput.closest('tr');
+
+    fetch(`/api/mercancia/barcode/${encodeURIComponent(codigo)}?empresa_id={{ g.empresa_id }}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.encontrado) {
+          tr.querySelector('.prod').value = data.nombre;
+          tr.querySelector('.mercancia_id').value = data.id;
+          tr.querySelector('.mercancia_seccion').value = data.seccion || '';
+          tr.querySelector('.seccion-badge').textContent = data.seccion || 'Sin sección';
+          tr.querySelector('.msg-validacion').textContent = '';
+          tr.querySelector('.msg-validacion').innerHTML = '';
+          setRowState(tr, true);
+          tr.querySelector('.unidades').focus();
+        } else {
+          tr.querySelector('.msg-validacion').innerHTML = 
+            `Código no encontrado. <a href="/mercancia" target="_blank" class="text-danger fw-bold">Regístralo →</a>`;
+          setRowState(tr, false);
+        }
+        validarFormulario();
+      })
+      .catch(() => {
+        tr.querySelector('.msg-validacion').textContent = 'Error al buscar código.';
+      });
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.target.classList.contains('codigo-barras') && e.key === 'Enter') {
+      e.preventDefault();
+      buscarPorCodigoBarras(e.target);
+    }
+  });
+
 </script>
 {% endblock %}
