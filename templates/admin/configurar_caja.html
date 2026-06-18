@@ -1,0 +1,63 @@
+{% extends "sidebar_multitenant.html" %}
+{% block content %}
+<div class="container py-4" style="max-width:600px;">
+  <h4><i class="fas fa-cash-register text-primary"></i> Configuración de Caja</h4>
+  <p class="text-muted">Define cómo el cajero buscará y cobrará los productos.</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-3">Modo de cobro en caja</h6>
+
+        <div class="form-check mb-3 p-3 border rounded {% if modo_actual == 'barcode' %}border-primary bg-primary bg-opacity-10{% endif %}">
+          <input class="form-check-input" type="radio" name="modo_caja" 
+                 id="modo_barcode" value="barcode"
+                 {% if modo_actual == 'barcode' %}checked{% endif %}>
+          <label class="form-check-label" for="modo_barcode">
+            <i class="fas fa-barcode text-primary"></i>
+            <strong> Código de Barras</strong>
+            <div class="text-muted small">El cajero escanea o captura el código de barras de cada producto.</div>
+          </label>
+        </div>
+
+        <div class="form-check mb-3 p-3 border rounded {% if modo_actual == 'secciones' %}border-success bg-success bg-opacity-10{% endif %}">
+          <input class="form-check-input" type="radio" name="modo_caja"
+                 id="modo_secciones" value="secciones"
+                 {% if modo_actual == 'secciones' %}checked{% endif %}>
+          <label class="form-check-label" for="modo_secciones">
+            <i class="fas fa-tags text-success"></i>
+            <strong> Por Secciones</strong>
+            <div class="text-muted small">Los productos se muestran organizados por sección (Bebidas, Lácteos, etc.).</div>
+          </label>
+        </div>
+
+        <div class="form-check mb-3 p-3 border rounded {% if modo_actual == 'todos' %}border-warning bg-warning bg-opacity-10{% endif %}">
+          <input class="form-check-input" type="radio" name="modo_caja"
+                 id="modo_todos" value="todos"
+                 {% if modo_actual == 'todos' %}checked{% endif %}>
+          <label class="form-check-label" for="modo_todos">
+            <i class="fas fa-list text-warning"></i>
+            <strong> Todos los productos</strong>
+            <div class="text-muted small">Se muestran todos los productos disponibles en una sola lista.</div>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+      <i class="fas fa-save"></i> Guardar configuración
+    </button>
+    <a href="{{ url_for('caja') }}" class="btn btn-outline-secondary ms-2">
+      <i class="fas fa-cash-register"></i> Ir a Caja
+    </a>
+  </form>
+</div>
+{% endblock %}

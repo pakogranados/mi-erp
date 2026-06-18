@@ -420,6 +420,9 @@
                             <a href="{{ url_for('gestionar_logos_empresas') }}" class="nav-link ps-5 small">
                                 <i class="fas fa-image"></i> Logos de Empresas
                             </a>
+                            <a href="{{ url_for('catalogo_mp') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-book"></i> A Producción o PT
+                            </a>
                             <a href="{{ url_for('admin_gestion_usuarios') }}" class="nav-link ps-5 small">
                                 <i class="fas fa-users"></i> Usuarios
                             </a>
@@ -434,6 +437,12 @@
                             </a>
                             <a href="{{ url_for('pt_codigos_barras') }}" class="nav-link ps-5 small">
                                 <i class="fas fa-barcode"></i> Crea Códigos de Barras
+                            </a>
+                            <a href="{{ url_for('admin_secciones') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-tags"></i> Secciones de Productos
+                            </a>
+                            <a href="{{ url_for('configurar_caja') }}" class="nav-link ps-5 small">
+                                <i class="fas fa-cash-register"></i> Configurar Caja
                             </a>
                         </div>
                     </div>
@@ -511,9 +520,7 @@
                             <a href="{{ url_for('mostrar_inventario_mp') }}" class="nav-link ps-5 small">
                                 <i class="fas fa-list"></i> Inventario MP
                             </a>
-                            <a href="{{ url_for('catalogo_mp') }}" class="nav-link ps-5 small">
-                                <i class="fas fa-book"></i> Catálogo MP
-                            </a>
+                            
                             <a href="{{ url_for('mercancia') }}" class="nav-link ps-5 small">
                                 <i class="fas fa-database"></i> Mercancía
                             </a>

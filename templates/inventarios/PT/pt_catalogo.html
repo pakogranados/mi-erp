@@ -90,12 +90,15 @@ input[type="number"].form-control-sm {
                 value="{{ it.codigo_barras or '' }}">
         </td>
         <td class="text-center">
-          <input name="seccion[]" form="frm"
-                type="text"
-                class="form-control form-control-sm"
-                placeholder="Ej: Bebidas, Lácteos"
-                list="lista_secciones"
-                value="{{ it.seccion or '' }}">
+          <select name="seccion[]" form="frm" class="form-select form-select-sm">
+            <option value="">— Sin sección —</option>
+            {% for s in secciones %}
+              <option value="{{ s.nombre }}"
+                      {{ 'selected' if it.seccion == s.nombre else '' }}>
+                {{ s.nombre }}
+              </option>
+            {% endfor %}
+          </select>
         </td>
         <td class="text-end">
           <span class="costo text-muted" data-costo="{{ it.costo }}">
@@ -152,6 +155,18 @@ input[type="number"].form-control-sm {
         <td colspan="10" class="text-center text-muted py-4">
           <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
           Sin productos terminados
+        </td>
+        <td class="text-center">
+          <select name="seccion[]" form="frm" class="form-select form-select-sm">
+            <option value="">— Sin sección —</option>
+            {% for s in secciones %}
+              <option value="{{ s.nombre }}" 
+                      style="background-color: {{ s.color }}20"
+                      {{ 'selected' if it.seccion == s.nombre else '' }}>
+                {{ s.nombre }}
+              </option>
+            {% endfor %}
+          </select>
         </td>
       </tr>
       {% endfor %}

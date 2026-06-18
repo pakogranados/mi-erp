@@ -84,7 +84,7 @@
     </div>
 
 
-    <div class="col-md-5">
+    <div class="col-md-4">
       <label class="form-label">
         <strong>Materia Prima</strong>
         <i class="fas fa-info-circle text-primary" 
@@ -105,6 +105,19 @@
         </select>
         <input type="text" name="producto_base_nuevo" class="form-control" placeholder="o crear nueva…">
       </div>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label">
+        <strong>¿Requiere producción?</strong>
+        <i class="fas fa-info-circle text-primary" data-bs-toggle="tooltip" 
+           title="Aplica solo si registras una NUEVA materia prima (campo 'o crear nueva...'). Si seleccionaste una existente, se mantiene su configuración actual."
+           style="cursor: help;"></i>
+      </label>
+      <select name="requiere_produccion" class="form-select">
+        <option value="1" selected>Sí — pasa por producción</option>
+        <option value="0">No — va directo a PT</option>
+      </select>
     </div>
 
     <div class="col-md-2">

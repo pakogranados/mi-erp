@@ -381,17 +381,58 @@
     </div>
 
     <div class="pos-body">
-      <!-- Botones rápidos -->
+
+      {% if modo_caja == 'barcode' %}
+      <!-- MODO CÓDIGO DE BARRAS -->
+      <div class="mb-3">
+        <label class="form-label"><i class="fas fa-barcode"></i> Escanear código de barras</label>
+        <input type="text" id="inputBarcode" class="form-control form-control-lg" 
+              placeholder="Escanea o escribe el código..." autocomplete="off" autofocus>
+        <div id="barcodeMsg" class="form-text"></div>
+      </div>
+      <div class="tiles mb-3" id="posTiles"></div>
+
+      {% elif modo_caja == 'secciones' %}
+      <!-- MODO POR SECCIONES -->
+      <div class="mb-3 d-flex gap-2 flex-wrap" id="seccionesTabs">
+        {% for sec in items_por_seccion.keys() %}
+          <button type="button" class="btn btn-outline-primary btn-sm seccion-tab" data-seccion="{{ sec }}">
+            {{ sec }}
+          </button>
+        {% endfor %}
+      </div>
+      {% for sec, productos in items_por_seccion.items() %}
+        <div class="tiles mb-3 seccion-grupo" data-seccion="{{ sec }}" style="display:none;">
+          {% for it in productos %}
+            <div class="tile tile-producto"
+                data-id="{{ it.id }}"
+                data-nombre="{{ it.nombre }}"
+                data-pu="{{ it.pu }}">
+              <div>{{ it.nombre }}</div>
+              <div class="small">${{ "%.2f"|format(it.pu) }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+
+      {% else %}
+      <!-- MODO TODOS LOS PRODUCTOS -->
       <div class="tiles mb-3" id="posTiles">
         {% for it in items_pos %}
           <div class="tile tile-producto"
-               data-id="{{ it.id }}"
-               data-nombre="{{ it.nombre }}"
-               data-pu="{{ it.pu }}">
+              data-id="{{ it.id }}"
+              data-nombre="{{ it.nombre }}"
+              data-pu="{{ it.pu }}">
             <div>{{ it.nombre }}</div>
             <div class="small">${{ "%.2f"|format(it.pu) }}</div>
           </div>
         {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Teclado numérico -->
+      <div class="keypad">
+        
       </div>
 
       <!-- Teclado numérico -->
@@ -865,7 +906,89 @@
         console.error(err);
       }
     });
+  }     
+
+  // ================= MODO CÓDIGO DE BARRAS =================
+  const inputBarcode = document.getElementById('inputBarcode');
+  if (inputBarcode) {
+    inputBarcode.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const codigo = inputBarcode.value.trim();
+      if (!codigo) return;
+
+      const msg = document.getElementById('barcodeMsg');
+      msg.textContent = 'Buscando...';
+      msg.className = 'form-text text-muted';
+
+      try {
+        const resp = await fetch(`/api/mercancia/barcode/${encodeURIComponent(codigo)}`);
+        const data = await resp.json();
+
+        if (data.encontrado) {
+          const inputCant = document.querySelector('input[name="cant"]');
+          let cantidad = 1;
+          if (inputCant && inputCant.value && inputCant.value.trim() !== '') {
+            cantidad = parseFloat(inputCant.value) || 1;
+            if (cantidad <= 0) cantidad = 1;
+          }
+
+          // Reusar lógica existente: simular click en tile virtual
+          const fakeTile = document.createElement('div');
+          fakeTile.className = 'tile tile-producto';
+          fakeTile.dataset.id = data.id;
+          fakeTile.dataset.nombre = data.nombre;
+          fakeTile.dataset.pu = data.precio_venta || 0;
+          document.getElementById('posTiles').appendChild(fakeTile);
+
+          const clickEvent = new MouseEvent('click', { bubbles: true });
+          fakeTile.dispatchEvent(clickEvent);
+
+          msg.textContent = `✅ ${data.nombre} agregado`;
+          msg.className = 'form-text text-success';
+        } else {
+          msg.textContent = '❌ Producto no encontrado con ese código';
+          msg.className = 'form-text text-danger';
+        }
+      } catch (err) {
+        msg.textContent = 'Error al buscar el código';
+        msg.className = 'form-text text-danger';
+      }
+
+      inputBarcode.value = '';
+      inputBarcode.focus();
+    });
   }
+
+  // ================= MODO SECCIONES: TABS =================
+  const seccionesTabs = document.querySelectorAll('.seccion-tab');
+  const seccionesGrupos = document.querySelectorAll('.seccion-grupo');
+  if (seccionesTabs.length > 0) {
+    // Activar la primera por defecto
+    seccionesTabs[0].classList.add('active', 'btn-primary');
+    seccionesTabs[0].classList.remove('btn-outline-primary');
+    if (seccionesGrupos[0]) seccionesGrupos[0].style.display = '';
+
+    seccionesTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const sec = tab.dataset.seccion;
+
+        seccionesTabs.forEach(t => {
+          t.classList.remove('active', 'btn-primary');
+          t.classList.add('btn-outline-primary');
+        });
+        tab.classList.add('active', 'btn-primary');
+        tab.classList.remove('btn-outline-primary');
+
+        seccionesGrupos.forEach(g => {
+          g.style.display = (g.dataset.seccion === sec) ? '' : 'none';
+        });
+      });
+    });
+  }
+
+
+      
 
   // ================= BÚSQUEDA DE PRODUCTOS =================
 

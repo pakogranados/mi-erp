@@ -305,6 +305,67 @@ def api_generar_codigo(mercancia_id):
     finally:
         cur.close()
         conn.close()
+
+@app.route('/admin/secciones', methods=['GET', 'POST'])
+@require_login
+def admin_secciones():
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        if request.method == 'POST':
+            accion = request.form.get('accion')
+            if accion == 'nueva':
+                nombre = request.form.get('nombre', '').strip()
+                descripcion = request.form.get('descripcion', '').strip()
+                color = request.form.get('color', '#6c757d').strip()
+                icono = request.form.get('icono', '').strip()
+                if nombre:
+                    cur.execute("""
+                        INSERT IGNORE INTO secciones_producto
+                        (empresa_id, nombre, descripcion, color, icono)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (eid, nombre, descripcion, color, icono or None))
+                    conn.commit()
+                    flash(f'Sección "{nombre}" creada.', 'success')
+            elif accion == 'eliminar':
+                sid = request.form.get('id')
+                cur.execute("""
+                    DELETE FROM secciones_producto 
+                    WHERE id = %s AND empresa_id = %s
+                """, (sid, eid))
+                conn.commit()
+                flash('Sección eliminada.', 'info')
+            elif accion == 'editar':
+                sid = request.form.get('id')
+                nombre = request.form.get('nombre', '').strip()
+                descripcion = request.form.get('descripcion', '').strip()
+                color = request.form.get('color', '#6c757d').strip()
+                icono = request.form.get('icono', '').strip()
+                cur.execute("""
+                    UPDATE secciones_producto
+                    SET nombre = %s, descripcion = %s, color = %s, icono = %s
+                    WHERE id = %s AND empresa_id = %s
+                """, (nombre, descripcion, color, icono or None, sid, eid))
+                conn.commit()
+                flash('Sección actualizada.', 'success')
+            return redirect(url_for('admin_secciones'))
+
+        cur.execute("""
+            SELECT s.*, COUNT(m.id) as total_productos
+            FROM secciones_producto s
+            LEFT JOIN mercancia m ON m.seccion = s.nombre AND m.empresa_id = s.empresa_id
+            WHERE s.empresa_id = %s
+            GROUP BY s.id
+            ORDER BY s.orden, s.nombre
+        """, (eid,))
+        secciones = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('admin/secciones.html', secciones=secciones)
+
 #============================
 #  ADMINISTRACION DASHBOARD
 #============================
@@ -907,6 +968,11 @@ def _totales(carrito, aplica_iva=True):
         "total": total
     }
 
+
+
+# ==================== CAJA DE COBRO ====================
+
+
 @app.post("/caja/agregar")
 @require_login
 def caja_agregar():
@@ -1330,7 +1396,35 @@ def test_session():
         }
     })
 
+@app.route('/admin/configurar-caja', methods=['GET', 'POST'])
+@require_login
+def configurar_caja():
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        if request.method == 'POST':
+            modo_caja = request.form.get('modo_caja', 'todos')
+            cur.execute("""
+                INSERT INTO empresa_configuracion (empresa_id, modo_caja)
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE modo_caja = VALUES(modo_caja)
+            """, (eid, modo_caja))
+            conn.commit()
+            flash('Configuración de caja actualizada.', 'success')
+            return redirect(url_for('configurar_caja'))
 
+        cur.execute("""
+            SELECT modo_caja FROM empresa_configuracion
+            WHERE empresa_id = %s
+        """, (eid,))
+        config = cur.fetchone()
+        modo_actual = config['modo_caja'] if config else 'todos'
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('admin/configurar_caja.html', modo_actual=modo_actual)
 
 
 # ==================== PERFIL DEL GRUPO EMPRESARIAL ====================
@@ -5241,6 +5335,32 @@ def caja():
         items_all = _pt_items_all()
         print(f"✅ Items disponibles: {len(items_all)}")
 
+        # ========================================
+        # OBTENER MODO DE CAJA Y SECCIONES
+        # ========================================
+        cursor2 = db.cursor(dictionary=True) if db else None
+        if db:
+            cursor.execute("""
+                SELECT modo_caja FROM empresa_configuracion WHERE empresa_id = %s
+            """, (eid,))
+            config_row = cursor.fetchone()
+            modo_caja = config_row['modo_caja'] if config_row else 'todos'
+
+            cursor.execute("""
+                SELECT nombre, color, icono FROM secciones_producto
+                WHERE empresa_id = %s AND activo = 1 ORDER BY orden, nombre
+            """, (eid,))
+            secciones_caja = cursor.fetchall()
+        else:
+            modo_caja = 'todos'
+            secciones_caja = []
+
+        # Agrupar items por sección para modo 'secciones'
+        items_por_seccion = {}
+        for it in items_all:
+            sec = it.get('seccion') or 'Sin sección'
+            items_por_seccion.setdefault(sec, []).append(it)
+
         sel_ids = set(int(x) for x in session.get("pos_sel", []))
         print(f"✅ Items seleccionados en sesión: {len(sel_ids)}")
 
@@ -5268,7 +5388,10 @@ def caja():
             sel_ids=sel_ids,
             holds=session.get("caja_holds", []),
             aplica_iva=aplica_iva,
-            
+            modo_caja=modo_caja,
+            secciones_caja=secciones_caja,
+            items_por_seccion=items_por_seccion,
+
             # ===== NUEVAS VARIABLES DE TURNO =====
             turno_actual=turno_actual,
             turno_hoy=turno_hoy,
@@ -6437,15 +6560,26 @@ def eliminar_consumo(consumo_id):
 @app.get("/pt/catalogo")
 @require_login
 def pt_catalogo():
-    """Catálogo de Productos Terminados (solo de la empresa activa)"""
     eid = g.empresa_id
-
-    # Obtiene los productos filtrados por empresa
-    items = _pt_items_all()  # Esta función ya debe filtrar por empresa internamente
+    items = _pt_items_all()
+    
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT nombre, color FROM secciones_producto
+            WHERE empresa_id = %s AND activo = 1
+            ORDER BY orden, nombre
+        """, (eid,))
+        secciones = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
 
     return render_template(
         "inventarios/PT/pt_catalogo.html",
-        items=items
+        items=items,
+        secciones=secciones
     )
 
 @app.post("/pt/catalogo_guardar")
@@ -14371,6 +14505,8 @@ def mercancia():
     cursor = conn.cursor(dictionary=True, buffered=True)
 
     if request.method == 'POST':
+        print("DEBUG MERCANCIA POST RECIBIDO")
+        print(f"DEBUG FORM DATA: {dict(request.form)}")
         nombre = (request.form.get('nombre') or '').strip()
         codigo_barras = (request.form.get('codigo_barras') or '').strip() or None
         
@@ -14401,6 +14537,8 @@ def mercancia():
             else None
         )
         producto_base_nuevo = (request.form.get('producto_base_nuevo') or '').strip()
+        requiere_produccion = int(request.form.get('requiere_produccion', 1))
+
 
         try:
             try:
@@ -14464,9 +14602,9 @@ def mercancia():
                 
                 # Crear producto_base CON subcuenta
                 cursor.execute("""
-                    INSERT INTO producto_base (empresa_id, nombre, subcuenta_id, activo)
-                    VALUES (%s, %s, %s, 1)
-                """, (eid, producto_base_nuevo, subcuenta_mp_id))
+                    INSERT INTO producto_base (empresa_id, nombre, subcuenta_id, activo, requiere_produccion)
+                    VALUES (%s, %s, %s, 1, %s)
+                """, (eid, producto_base_nuevo, subcuenta_mp_id, requiere_produccion))
                 conn.commit()
                 producto_base_id = cursor.lastrowid
 
@@ -14658,56 +14796,54 @@ def actualizar_mercancia(id):
             else None
         )
         producto_base_nuevo = (request.form.get('producto_base_nuevo') or '').strip()
-        
+        requiere_produccion = int(request.form.get('requiere_produccion', 1))
+        print(f"DEBUG requiere_produccion recibido: {request.form.get('requiere_produccion')}")
+
         if not producto_base_id and producto_base_nuevo:
-            # CREAR SUBCUENTA CONTABLE PARA MATERIA PRIMA
             subcuenta_mp_id = None
             try:
-                # Buscar cuenta padre 1104-001 (Inventario Materia Prima)
                 cursor.execute("""
-                    SELECT id FROM cuentas_contables 
+                    SELECT id FROM cuentas_contables
                     WHERE empresa_id = %s AND codigo = '1104-001'
                 """, (eid,))
                 cuenta_1104_001 = cursor.fetchone()
-                
+
                 if cuenta_1104_001:
                     padre_inventario_id = cuenta_1104_001['id']
-                    
-                    # Buscar última subcuenta bajo 1104-001
+
                     cursor.execute("""
-                        SELECT codigo FROM cuentas_contables 
+                        SELECT codigo FROM cuentas_contables
                         WHERE empresa_id = %s AND codigo LIKE '1104-001-%%'
                         ORDER BY codigo DESC LIMIT 1
                     """, (eid,))
                     ultima = cursor.fetchone()
-                    
+
                     if ultima:
                         ultimo_num = int(ultima['codigo'].split('-')[-1])
                         siguiente_num = ultimo_num + 1
                     else:
                         siguiente_num = 1
-                    
-                    # Crear código: 1104-001-001, 1104-001-002, etc.
+
                     nuevo_codigo = f"1104-001-{siguiente_num:03d}"
                     nuevo_nombre = f"INV MP - {producto_base_nuevo}"
-                    
-                    # Insertar subcuenta contable
+
                     cursor.execute("""
-                        INSERT INTO cuentas_contables 
+                        INSERT INTO cuentas_contables
                         (contratante_id, empresa_id, codigo, nombre, tipo, naturaleza, nivel, padre_id, permite_subcuentas)
                         VALUES (%s, %s, %s, %s, 'Activo', 'Deudora', 5, %s, 0)
                     """, (g.contratante_id, eid, nuevo_codigo, nuevo_nombre, padre_inventario_id))
-                    
+
                     subcuenta_mp_id = cursor.lastrowid
                     print(f"✅ Subcuenta MP creada: {nuevo_codigo} - {nuevo_nombre} (ID: {subcuenta_mp_id})")
+
             except Exception as e:
                 print(f"⚠️ Error creando subcuenta MP: {e}")
-            
-            # Crear producto_base CON subcuenta
+
+            print(f"DEBUG ANTES INSERT producto_base: requiere_produccion={requiere_produccion}")
             cursor.execute("""
-                INSERT INTO producto_base (empresa_id, nombre, subcuenta_id, activo)
-                VALUES (%s, %s, %s, 1)
-            """, (eid, producto_base_nuevo, subcuenta_mp_id))
+                INSERT INTO producto_base (empresa_id, nombre, subcuenta_id, activo, requiere_produccion)
+                VALUES (%s, %s, %s, 1, %s)
+            """, (eid, producto_base_nuevo, subcuenta_mp_id, requiere_produccion))
             conn.commit()
             producto_base_id = cursor.lastrowid
 
