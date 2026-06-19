@@ -1,6 +1,75 @@
 {% extends "sidebar_multitenant.html" %}
 {% block content %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
 
+<div class="card mb-4">
+  <div class="card-header bg-primary text-white">
+    <i class="fas fa-plus-circle"></i> Nuevo Producto Terminado
+  </div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('pt_catalogo') }}" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">Nombre <span class="text-danger">*</span></label>
+        <input type="text" name="nombre" class="form-control" placeholder="Ej: Cono Wafle" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Código de Barras</label>
+        <input type="text" name="codigo_barras" class="form-control" placeholder="Auto si vacío">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Sección</label>
+        {% if secciones %}
+          <select name="seccion" class="form-select">
+            <option value="">— Sin sección —</option>
+            {% for s in secciones %}
+              <option value="{{ s.nombre }}">{{ s.nombre }}</option>
+            {% endfor %}
+          </select>
+        {% else %}
+          <div class="alert alert-warning p-2 mb-0">
+            <i class="fas fa-exclamation-triangle"></i>
+            No hay secciones registradas. 
+            <a href="{{ url_for('admin_secciones') }}" class="alert-link">Registra una sección</a> antes de agregar productos.
+          </div>
+          <input type="hidden" name="seccion" value="">
+        {% endif %}
+      </div>
+      <div class="col-md-1">
+        <label class="form-label">Modo</label>
+        <select name="modo" class="form-select" id="modoNuevo">
+          <option value="auto">Auto</option>
+          <option value="manual">Manual</option>
+        </select>
+      </div>
+      <div class="col-md-1" id="colMarkup">
+        <label class="form-label">Markup %</label>
+        <input type="number" name="markup_pct" class="form-control" value="30" step="0.01" min="0">
+      </div>
+      <div class="col-md-1" id="colPrecioManual" style="display:none;">
+        <label class="form-label">Precio $</label>
+        <input type="number" name="precio_manual" class="form-control" step="0.01" min="0">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Alias caja</label>
+        <input type="text" name="alias" class="form-control" placeholder="Texto botón">
+      </div>
+      <div class="col-md-12 text-end">
+        <button type="submit" class="btn btn-primary">
+          <i class="fas fa-plus"></i> Agregar Producto
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
 <style>
 .campo-activo {
   animation: pulse 2s infinite;
@@ -334,6 +403,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+});
+// Toggle modo nuevo producto
+document.getElementById('modoNuevo').addEventListener('change', function() {
+  document.getElementById('colMarkup').style.display = this.value === 'auto' ? '' : 'none';
+  document.getElementById('colPrecioManual').style.display = this.value === 'manual' ? '' : 'none';
 });
 </script>
 

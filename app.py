@@ -1405,27 +1405,33 @@ def configurar_caja():
     try:
         if request.method == 'POST':
             modo_caja = request.form.get('modo_caja', 'todos')
+            frecuencia_inventario_fisico = request.form.get('frecuencia_inventario_fisico', 'diario')
             cur.execute("""
-                INSERT INTO empresa_configuracion (empresa_id, modo_caja)
-                VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE modo_caja = VALUES(modo_caja)
-            """, (eid, modo_caja))
+                INSERT INTO empresa_configuracion (empresa_id, modo_caja, frecuencia_inventario_fisico)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    modo_caja = VALUES(modo_caja),
+                    frecuencia_inventario_fisico = VALUES(frecuencia_inventario_fisico)
+            """, (eid, modo_caja, frecuencia_inventario_fisico))
             conn.commit()
             flash('Configuración de caja actualizada.', 'success')
             return redirect(url_for('configurar_caja'))
 
         cur.execute("""
-            SELECT modo_caja FROM empresa_configuracion
+            SELECT modo_caja, frecuencia_inventario_fisico
+            FROM empresa_configuracion
             WHERE empresa_id = %s
         """, (eid,))
         config = cur.fetchone()
         modo_actual = config['modo_caja'] if config else 'todos'
+        frecuencia_inventario = config['frecuencia_inventario_fisico'] if config else 'diario'
     finally:
         cur.close()
         conn.close()
 
-    return render_template('admin/configurar_caja.html', modo_actual=modo_actual)
-
+    return render_template('admin/configurar_caja.html',
+                           modo_actual=modo_actual,
+                           frecuencia_inventario=frecuencia_inventario)
 
 # ==================== PERFIL DEL GRUPO EMPRESARIAL ====================
 
@@ -5866,56 +5872,61 @@ def ver_ticket(ticket_id):
 @app.route('/registrar_retiro', methods=['POST'])
 @require_login
 def registrar_retiro():
-    """Registrar retiro parcial de efectivo - CON EMPRESA"""
     eid = g.empresa_id
     uid = g.usuario_id
-    
+
     db = conexion_db()
     cursor = db.cursor(dictionary=True)
-    
+
     cursor.execute("""
         SELECT id FROM turnos 
         WHERE usuario_id = %s AND empresa_id = %s AND estado = 'abierto' 
         LIMIT 1
     """, (uid, eid))
     turno = cursor.fetchone()
-    
+
     if not turno:
         cursor.close()
         db.close()
         flash('⚠️ No hay un turno abierto', 'warning')
         return redirect(url_for('apertura_turno'))
-    
+
     try:
         monto = float(request.form.get('monto', 0))
-        motivo = request.form.get('motivo', '')
+        motivo = (request.form.get('concepto') or request.form.get('motivo') or '').strip()
         notas = request.form.get('notas', '')
-        
+        billetes_20 = int(request.form.get('billetes_20', 0) or 0)
+        billetes_50 = int(request.form.get('billetes_50', 0) or 0)
+        billetes_100 = int(request.form.get('billetes_100', 0) or 0)
+        billetes_200 = int(request.form.get('billetes_200', 0) or 0)
+        billetes_500 = int(request.form.get('billetes_500', 0) or 0)
+        dolares = float(request.form.get('dolares', 0) or 0)
+        monedas = float(request.form.get('monedas', 0) or 0)
+
         if monto <= 0:
             flash('El monto debe ser mayor a cero', 'danger')
             return redirect(url_for('caja'))
-        
-        # Registrar retiro CON EMPRESA
+
         cursor.execute("""
             INSERT INTO retiros_efectivo 
-            (empresa_id, turno_id, fecha, monto, motivo, notas, usuario_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (eid, turno['id'], datetime.now(), monto, motivo, notas, uid))
-        
+            (empresa_id, turno_id, fecha, monto, motivo, notas, usuario_id,
+             billetes_20, billetes_50, billetes_100, billetes_200, billetes_500,
+             dolares, monedas)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (eid, turno['id'], datetime.now(), monto, motivo, notas, uid,
+              billetes_20, billetes_50, billetes_100, billetes_200, billetes_500,
+              dolares, monedas))
+
         db.commit()
+        flash(f'✅ Retiro de ${monto:.2f} registrado exitosamente', 'success')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error: {str(e)}', 'danger')
+    finally:
         cursor.close()
         db.close()
-        
-        flash(f'✅ Retiro de ${monto:.2f} registrado exitosamente', 'success')
-        return redirect(url_for('caja'))
-        
-    except Exception as e:
-        try:
-            db.rollback()
-        except:
-            pass
-        flash(f'Error: {str(e)}', 'danger')
-        return redirect(url_for('caja'))
+
+    return redirect(url_for('caja'))
 
 @app.route('/historial_retiros')
 @require_login
@@ -6076,24 +6087,56 @@ def cerrar_turno():
             return redirect(url_for('apertura_turno'))
         
         if request.method == 'GET':
-            # Obtener productos PT de ESTA EMPRESA
+            # Leer configuración de frecuencia de inventario
             cursor.execute("""
-                SELECT m.id, m.nombre, COALESCE(p.precio_manual, 0) as precio
-                FROM mercancia m
-                LEFT JOIN pt_precios p ON p.mercancia_id = m.id AND p.empresa_id = %s
-                WHERE m.tipo = 'PT' AND m.activo = 1 AND m.empresa_id = %s
-                ORDER BY m.nombre
-            """, (eid, eid))
-            productos = cursor.fetchall()
-            
-            # Obtener retiros DE ESTA EMPRESA
+                SELECT frecuencia_inventario_fisico 
+                FROM empresa_configuracion 
+                WHERE empresa_id = %s
+            """, (eid,))
+            config = cursor.fetchone()
+            frecuencia = config['frecuencia_inventario_fisico'] if config else 'diario'
+
+            # Determinar si toca inventario físico hoy
+            pedir_inventario = False
+            if frecuencia == 'diario':
+                pedir_inventario = True
+            elif frecuencia == 'nunca':
+                pedir_inventario = False
+            elif frecuencia in ('semanal', 'mensual'):
+                dias = 7 if frecuencia == 'semanal' else 30
+                cursor.execute("""
+                    SELECT MAX(t.fecha_cierre) as ultimo
+                    FROM turnos t
+                    INNER JOIN turno_inventario_final tif ON tif.turno_id = t.id
+                    WHERE t.empresa_id = %s AND t.estado = 'cerrado' AND tif.empresa_id = %s
+                """, (eid, eid))
+                row = cursor.fetchone()
+                ultimo = row['ultimo'] if row else None
+                if not ultimo:
+                    pedir_inventario = True
+                else:
+                    from datetime import datetime, timedelta
+                    pedir_inventario = (datetime.now() - ultimo).days >= dias
+
+            productos = []
+            if pedir_inventario:
+                cursor.execute("""
+                    SELECT m.id, m.nombre, COALESCE(p.precio_manual, 0) as precio
+                    FROM mercancia m
+                    LEFT JOIN pt_precios p ON p.mercancia_id = m.id AND p.empresa_id = %s
+                    WHERE m.tipo = 'PT' AND m.activo = 1 AND m.empresa_id = %s
+                    ORDER BY m.nombre
+                """, (eid, eid))
+                productos = cursor.fetchall()
+
+            # Obtener retiros
             cursor.execute("""
                 SELECT COALESCE(SUM(monto), 0) as total_retiros
                 FROM retiros_efectivo 
                 WHERE turno_id = %s AND empresa_id = %s
             """, (turno['id'], eid))
             retiros = cursor.fetchone()
-            
+
             # Obtener gastos
             cursor.execute("""
                 SELECT * FROM turno_gastos 
@@ -6102,7 +6145,7 @@ def cerrar_turno():
             """, (turno['id'], eid))
             gastos = cursor.fetchall()
             total_gastos = sum(g['monto'] for g in gastos)
-            
+
             # Obtener mermas
             cursor.execute("""
                 SELECT * FROM turno_mermas 
@@ -6110,16 +6153,18 @@ def cerrar_turno():
                 ORDER BY fecha DESC
             """, (turno['id'], eid))
             mermas = cursor.fetchall()
-            
+
             ya_validado = session.get(f'turno_{turno["id"]}_validado', False)
-            
+
             cursor.close()
             db.close()
-            
+
             return render_template(
                 'cobranza/cerrar_turno.html',
                 turno=turno,
                 productos=productos,
+                pedir_inventario=pedir_inventario,
+                frecuencia=frecuencia,
                 retiros=retiros,
                 gastos=gastos,
                 total_gastos=total_gastos,
@@ -6129,6 +6174,7 @@ def cerrar_turno():
         
         # POST - Procesar
         ya_validado = session.get(f'turno_{turno["id"]}_validado', False)
+        pedir_inventario = request.form.get('pedir_inventario', 'false') == 'true'
         
         if not ya_validado:
             diferencias_inventario = []
@@ -6557,19 +6603,73 @@ def eliminar_consumo(consumo_id):
 
 # --- Vistas ---
 
-@app.get("/pt/catalogo")
+@app.route("/pt/catalogo", methods=['GET', 'POST'])
 @require_login
 def pt_catalogo():
     eid = g.empresa_id
+
+    if request.method == 'POST':
+        nombre = (request.form.get('nombre') or '').strip()
+        codigo_barras = (request.form.get('codigo_barras') or '').strip() or None
+        seccion = (request.form.get('seccion') or '').strip() or None
+        modo = request.form.get('modo', 'auto')
+        markup_pct = float(request.form.get('markup_pct', 30)) / 100
+        precio_manual_s = request.form.get('precio_manual') or None
+        precio_manual = float(precio_manual_s) if precio_manual_s else None
+        alias = (request.form.get('alias') or '').strip() or None
+
+        if not nombre:
+            flash('⚠️ El nombre es obligatorio', 'warning')
+            return redirect(url_for('pt_catalogo'))
+
+        db = conexion_db()
+        cur = db.cursor(dictionary=True)
+        try:
+            cur.execute("""
+                SELECT id FROM mercancia
+                WHERE empresa_id = %s AND tipo_inventario_id = 3
+                AND UPPER(TRIM(nombre)) = UPPER(%s) LIMIT 1
+            """, (eid, nombre))
+            if cur.fetchone():
+                flash(f'⚠️ Ya existe un PT con ese nombre', 'warning')
+                return redirect(url_for('pt_catalogo'))
+
+            cur.execute("""
+                INSERT INTO mercancia
+                  (empresa_id, nombre, codigo_barras, tipo_inventario_id, precio,
+                   unidad_id, cont_neto, iva, ieps, activo, tipo, orden, seccion, alias)
+                VALUES (%s, %s, %s, 3, 0.00, 1, 1, 0, 0, 1, 'PT', 9999, %s, %s)
+            """, (eid, nombre, codigo_barras, seccion, alias))
+            mid = cur.lastrowid
+
+            if not codigo_barras:
+                codigo_barras = generar_codigo_ean13(eid, mid)
+                cur.execute("UPDATE mercancia SET codigo_barras=%s WHERE id=%s", (codigo_barras, mid))
+
+            cur.execute("""
+                INSERT INTO pt_precios (empresa_id, mercancia_id, modo, markup_pct, precio_manual)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE modo=VALUES(modo), markup_pct=VALUES(markup_pct), precio_manual=VALUES(precio_manual)
+            """, (eid, mid, modo, markup_pct, precio_manual))
+
+            db.commit()
+            flash(f'✅ Producto "{nombre}" agregado correctamente', 'success')
+        except Exception as e:
+            db.rollback()
+            flash(f'❌ Error: {str(e)}', 'danger')
+        finally:
+            cur.close()
+            db.close()
+        return redirect(url_for('pt_catalogo'))
+
+    # GET
     items = _pt_items_all()
-    
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     try:
         cur.execute("""
             SELECT nombre, color FROM secciones_producto
-            WHERE empresa_id = %s AND activo = 1
-            ORDER BY orden, nombre
+            WHERE empresa_id = %s AND activo = 1 ORDER BY orden, nombre
         """, (eid,))
         secciones = cur.fetchall()
     finally:

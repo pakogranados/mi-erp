@@ -547,129 +547,95 @@
 
 <!-- MODAL: Retiro de Efectivo -->
 <div class="modal fade" id="modalRetiro" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
-      <div class="modal-header bg-warning">
-        <h5 class="modal-title">💵 Retiro de Efectivo</h5>
+      <div class="modal-header bg-warning py-2">
+        <h6 class="modal-title mb-0">💵 Retiro de Efectivo</h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body py-2">
         <form method="post" action="{{ url_for('registrar_retiro') }}" id="frmRetiro">
-          
-          <!-- Billetes MXN -->
-          <div class="mb-3">
-            <label class="form-label fw-bold">💵 Billetes (MXN)</label>
-            
-            <div class="row g-2 mb-2">
-              <div class="col-4">
-                <label class="small">$20</label>
-                <input type="number" class="form-control form-control-sm" id="bill20" min="0" value="0">
-              </div>
-              <div class="col-4">
-                <label class="small">$50</label>
-                <input type="number" class="form-control form-control-sm" id="bill50" min="0" value="0">
-              </div>
-              <div class="col-4">
-                <label class="small text-end">Equiv:</label>
-                <div class="fw-bold text-end" id="equiv20">$0.00</div>
-              </div>
-            </div>
-            
-            <div class="row g-2 mb-2">
-              <div class="col-4"></div>
-              <div class="col-4"></div>
-              <div class="col-4">
-                <div class="fw-bold text-end" id="equiv50">$0.00</div>
-              </div>
-            </div>
-            
-            <div class="row g-2 mb-2">
-              <div class="col-4">
-                <label class="small">$100</label>
-                <input type="number" class="form-control form-control-sm" id="bill100" min="0" value="0">
-              </div>
-              <div class="col-4">
-                <label class="small">$200</label>
-                <input type="number" class="form-control form-control-sm" id="bill200" min="0" value="0">
-              </div>
-              <div class="col-4">
-                <div class="fw-bold text-end" id="equiv100">$0.00</div>
-              </div>
-            </div>
-            
-            <div class="row g-2 mb-2">
-              <div class="col-4"></div>
-              <div class="col-4"></div>
-              <div class="col-4">
-                <div class="fw-bold text-end" id="equiv200">$0.00</div>
-              </div>
-            </div>
-            
-            <div class="row g-2">
-              <div class="col-4">
-                <label class="small">$500</label>
-                <input type="number" class="form-control form-control-sm" id="bill500" min="0" value="0">
-              </div>
-              <div class="col-4"></div>
-              <div class="col-4">
-                <div class="fw-bold text-end" id="equiv500">$0.00</div>
-              </div>
-            </div>
-          </div>
-          
-          <hr>
-          
+          <!-- Monedas -->
           <div class="row g-2 mb-2">
-            <div class="col-8">
-              <strong>Total Pesos:</strong>
-            </div>
-            <div class="col-4 text-end">
-              <strong id="totalPesos">$0.00</strong>
+            <div class="col-md-5">
+              <label class="fw-bold small mb-0">🪙 Monedas (MXN)</label>
+              <div class="input-group input-group-sm">
+                <span class="input-group-text">$</span>
+                <input type="number" class="form-control" id="monedasInput" step="0.01" min="0" value="0">
+              </div>
             </div>
           </div>
-          
-          <!-- Dólares -->
-          <div class="mb-3">
-            <label class="form-label fw-bold">💵 Dólares (USD)</label>
-            <div class="input-group">
-              <span class="input-group-text">$</span>
-              <input type="number" class="form-control" id="dolaresInput" step="0.01" min="0" value="0">
-              <span class="input-group-text">USD</span>
+          <!-- Billetes MXN en grid compacto -->
+          <label class="fw-bold small mb-1">💵 Billetes MXN</label>
+          <div class="row g-1 mb-2">
+            <div class="col">
+              <label class="form-label small mb-0">$20</label>
+              <input type="number" class="form-control form-control-sm" id="bill20" min="0" value="0">
+              <div class="text-end small text-muted" id="equiv20">$0</div>
             </div>
-            <input type="hidden" id="dolaresEnPesos" name="dolares_en_pesos">
+            <div class="col">
+              <label class="form-label small mb-0">$50</label>
+              <input type="number" class="form-control form-control-sm" id="bill50" min="0" value="0">
+              <div class="text-end small text-muted" id="equiv50">$0</div>
+            </div>
+            <div class="col">
+              <label class="form-label small mb-0">$100</label>
+              <input type="number" class="form-control form-control-sm" id="bill100" min="0" value="0">
+              <div class="text-end small text-muted" id="equiv100">$0</div>
+            </div>
+            <div class="col">
+              <label class="form-label small mb-0">$200</label>
+              <input type="number" class="form-control form-control-sm" id="bill200" min="0" value="0">
+              <div class="text-end small text-muted" id="equiv200">$0</div>
+            </div>
+            <div class="col">
+              <label class="form-label small mb-0">$500</label>
+              <input type="number" class="form-control form-control-sm" id="bill500" min="0" value="0">
+              <div class="text-end small text-muted" id="equiv500">$0</div>
+            </div>
           </div>
-          
+
+          <!-- Dólares y Total en la misma fila -->
           <div class="row g-2 mb-2">
-            <div class="col-8">
-              <small class="text-muted">Equiv. Dólares (TC ${{ "%.2f"|format(tipo_cambio) }}):</small>
+            <div class="col-md-5">
+              <label class="fw-bold small mb-0">💵 Dólares (USD)</label>
+              <div class="input-group input-group-sm">
+                <span class="input-group-text">$</span>
+                <input type="number" class="form-control" id="dolaresInput" step="0.01" min="0" value="0">
+                <span class="input-group-text">USD</span>
+              </div>
+              <input type="hidden" id="dolaresEnPesos" name="dolares_en_pesos">
+              <div class="text-end small text-muted">Equiv: <span id="totalDolaresEquiv">$0.00</span></div>
             </div>
-            <div class="col-4 text-end">
-              <strong id="totalDolaresEquiv">$0.00</strong>
+            <div class="col-md-7 d-flex align-items-center">
+              <div class="w-100">
+                <div class="d-flex justify-content-between border-top pt-1">
+                  <span class="small">Total Pesos:</span>
+                  <strong id="totalPesos">$0.00</strong>
+                </div>
+                <div class="d-flex justify-content-between">
+                  <span class="small">Total Dólares (equiv):</span>
+                  <strong id="totalDolaresEquiv2">$0.00</strong>
+                </div>
+                <div class="d-flex justify-content-between border-top pt-1">
+                  <h6 class="mb-0">TOTAL:</h6>
+                  <h6 class="text-danger mb-0" id="totalGeneral">$0.00</h6>
+                </div>
+              </div>
             </div>
           </div>
-          
-          <hr>
-          
-          <div class="row g-2 mb-3">
-            <div class="col-8">
-              <h5>TOTAL GENERAL:</h5>
-            </div>
-            <div class="col-4 text-end">
-              <h5 class="text-danger" id="totalGeneral">$0.00</h5>
-            </div>
-          </div>
-          
-          <!-- Campo oculto con el monto total -->
+
           <input type="hidden" name="monto" id="montoTotal">
-          
+
           <!-- Concepto -->
-          <div class="mb-3">
-            <label class="form-label">Concepto:</label>
-            <textarea class="form-control" name="concepto" rows="2" placeholder="Ej: Cambio de billete" required></textarea>
+          <div class="mb-2">
+            <label class="form-label small fw-bold mb-0">Concepto:</label>
+            <textarea class="form-control form-control-sm" name="concepto" rows="1" 
+                      placeholder="Ej: Cambio de billete" required></textarea>
           </div>
-          
+
           <div class="d-grid">
-            <button type="submit" class="btn btn-warning" id="btnConfirmarRetiro">
+            <button type="submit" class="btn btn-warning btn-sm" id="btnConfirmarRetiro">
               💵 Confirmar Retiro
             </button>
           </div>
@@ -678,7 +644,6 @@
     </div>
   </div>
 </div>
-
 <!-- ========================================
      MODAL: CERRAR TURNO ANTIGUO
      ======================================== -->
@@ -1173,7 +1138,8 @@
 
     const dolares = parseFloat(document.getElementById('dolaresInput')?.value || '0') || 0;
     const dolaresEnPesos = dolares * tipoCambio;
-    const totalGeneral = totalPesos + dolaresEnPesos;
+    const monedas = parseFloat(document.getElementById('monedasInput')?.value || '0') || 0;
+    const totalGeneral = totalPesos + dolaresEnPesos + monedas;
 
     const elTotalPesos = document.getElementById('totalPesos');
     const elDolaresEnPesos = document.getElementById('dolaresEnPesos');
@@ -1182,9 +1148,11 @@
     const elMontoTotal = document.getElementById('montoTotal');
     const btnConfirmar = document.getElementById('btnConfirmarRetiro');
 
-    if (elTotalPesos) elTotalPesos.textContent = '$' + totalPesos.toFixed(2);
+    if (elTotalPesos) elTotalPesos.textContent = '$' + (totalPesos + monedas).toFixed(2);
     if (elDolaresEnPesos) elDolaresEnPesos.value = '$' + dolaresEnPesos.toFixed(2);
     if (elTotalDolaresEquiv) elTotalDolaresEquiv.textContent = '$' + dolaresEnPesos.toFixed(2);
+    const elTotalDolaresEquiv2 = document.getElementById('totalDolaresEquiv2');
+    if (elTotalDolaresEquiv2) elTotalDolaresEquiv2.textContent = '$' + dolaresEnPesos.toFixed(2);
     if (elTotalGeneral) elTotalGeneral.textContent = '$' + totalGeneral.toFixed(2);
     if (elMontoTotal) elMontoTotal.value = totalGeneral.toFixed(2);
 
@@ -1193,7 +1161,7 @@
     }
   }
 
-  document.querySelectorAll('#bill20, #bill50, #bill100, #bill200, #bill500, #dolaresInput').forEach(input => {
+  document.querySelectorAll('#bill20, #bill50, #bill100, #bill200, #bill500, #dolaresInput, #monedasInput').forEach(input => {
     input.addEventListener('input', calcularTotalRetiro);
   });
 

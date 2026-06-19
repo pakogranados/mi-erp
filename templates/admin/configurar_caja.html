@@ -51,7 +51,55 @@
         </div>
       </div>
     </div>
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="mb-3">Frecuencia de inventario físico</h6>
 
+                <div class="form-check mb-3 p-3 border rounded {% if frecuencia_inventario == 'diario' %}border-primary bg-primary bg-opacity-10{% endif %}">
+                <input class="form-check-input" type="radio" name="frecuencia_inventario_fisico"
+                        id="frec_diario" value="diario"
+                        {% if frecuencia_inventario == 'diario' %}checked{% endif %}>
+                <label class="form-check-label" for="frec_diario">
+                    <i class="fas fa-calendar-day text-primary"></i>
+                    <strong> Diario</strong>
+                    <div class="text-muted small">Se solicita conteo físico en cada cierre de turno.</div>
+                </label>
+                </div>
+
+                <div class="form-check mb-3 p-3 border rounded {% if frecuencia_inventario == 'semanal' %}border-success bg-success bg-opacity-10{% endif %}">
+                <input class="form-check-input" type="radio" name="frecuencia_inventario_fisico"
+                        id="frec_semanal" value="semanal"
+                        {% if frecuencia_inventario == 'semanal' %}checked{% endif %}>
+                <label class="form-check-label" for="frec_semanal">
+                    <i class="fas fa-calendar-week text-success"></i>
+                    <strong> Semanal</strong>
+                    <div class="text-muted small">Se solicita conteo físico una vez por semana.</div>
+                </label>
+                </div>
+
+                <div class="form-check mb-3 p-3 border rounded {% if frecuencia_inventario == 'mensual' %}border-warning bg-warning bg-opacity-10{% endif %}">
+                <input class="form-check-input" type="radio" name="frecuencia_inventario_fisico"
+                        id="frec_mensual" value="mensual"
+                        {% if frecuencia_inventario == 'mensual' %}checked{% endif %}>
+                <label class="form-check-label" for="frec_mensual">
+                    <i class="fas fa-calendar-alt text-warning"></i>
+                    <strong> Mensual</strong>
+                    <div class="text-muted small">Se solicita conteo físico una vez al mes.</div>
+                </label>
+                </div>
+
+                <div class="form-check mb-3 p-3 border rounded {% if frecuencia_inventario == 'nunca' %}border-danger bg-danger bg-opacity-10{% endif %}">
+                <input class="form-check-input" type="radio" name="frecuencia_inventario_fisico"
+                        id="frec_nunca" value="nunca"
+                        {% if frecuencia_inventario == 'nunca' %}checked{% endif %}>
+                <label class="form-check-label" for="frec_nunca">
+                    <i class="fas fa-times-circle text-danger"></i>
+                    <strong> Nunca</strong>
+                    <div class="text-muted small">No se solicita conteo físico. Solo arqueo de efectivo.</div>
+                </label>
+                </div>
+            </div>
+            </div>
     <button type="submit" class="btn btn-primary">
       <i class="fas fa-save"></i> Guardar configuración
     </button>
