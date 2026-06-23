@@ -1498,6 +1498,11 @@ def perfil_grupo():
 @app.route('/grupo/empresa/<int:empresa_id>/editar', methods=['GET', 'POST'])
 @require_login
 def editar_perfil_empresa(empresa_id):
+    # Solo puede editar su propia empresa
+    if empresa_id != g.empresa_id:
+        flash('⚠️ Solo puedes editar el perfil de tu empresa activa.', 'danger')
+        return redirect(url_for('perfil_grupo'))
+
     conn = conexion_db()
     cur = conn.cursor(dictionary=True)
     try:
@@ -1510,20 +1515,29 @@ def editar_perfil_empresa(empresa_id):
             telefono = request.form.get('telefono', '')
             email = request.form.get('email', '')
             direccion = request.form.get('direccion', '')
+            tipo_mercancia = request.form.get('tipo_mercancia', 'producto_directo')
+            modo_caja = request.form.get('modo_caja', 'todos')
+            frecuencia_inventario_fisico = request.form.get('frecuencia_inventario_fisico', 'diario')
 
             cur.execute("""
                 UPDATE empresas SET
-                    nombre = %s,
-                    uso_descripcion = %s,
-                    tipo_empresa = %s,
-                    responsable_nombre = %s,
-                    responsable_puesto = %s,
-                    telefono = %s,
-                    email = %s,
-                    direccion = %s
+                    nombre = %s, uso_descripcion = %s, tipo_empresa = %s,
+                    responsable_nombre = %s, responsable_puesto = %s,
+                    telefono = %s, email = %s, direccion = %s
                 WHERE id = %s
             """, (nombre, uso_descripcion, tipo_empresa, responsable_nombre,
                   responsable_puesto, telefono, email, direccion, empresa_id))
+
+            cur.execute("""
+                INSERT INTO empresa_configuracion 
+                    (empresa_id, tipo_mercancia, modo_caja, frecuencia_inventario_fisico)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    tipo_mercancia = VALUES(tipo_mercancia),
+                    modo_caja = VALUES(modo_caja),
+                    frecuencia_inventario_fisico = VALUES(frecuencia_inventario_fisico)
+            """, (empresa_id, tipo_mercancia, modo_caja, frecuencia_inventario_fisico))
+
             conn.commit()
             flash('✅ Perfil actualizado correctamente', 'success')
             return redirect(url_for('perfil_grupo'))
@@ -1534,11 +1548,21 @@ def editar_perfil_empresa(empresa_id):
             flash('Empresa no encontrada', 'danger')
             return redirect(url_for('perfil_grupo'))
 
+        cur.execute("""
+            SELECT tipo_mercancia, modo_caja, frecuencia_inventario_fisico
+            FROM empresa_configuracion WHERE empresa_id = %s
+        """, (empresa_id,))
+        config = cur.fetchone() or {
+            'tipo_mercancia': 'producto_directo',
+            'modo_caja': 'todos',
+            'frecuencia_inventario_fisico': 'diario'
+        }
+
     finally:
         cur.close()
         conn.close()
 
-    return render_template('grupo/editar_empresa.html', empresa=empresa)
+    return render_template('grupo/editar_empresa.html', empresa=empresa, config=config)
 
 # -----   REGISTRO AL ERP  --------
 
@@ -6121,12 +6145,37 @@ def cerrar_turno():
             productos = []
             if pedir_inventario:
                 cursor.execute("""
-                    SELECT m.id, m.nombre, COALESCE(p.precio_manual, 0) as precio
+                    SELECT 
+                        m.id,
+                        m.nombre,
+                        COALESCE(p.precio_manual, 0) as precio,
+                        COALESCE(ti.cantidad_inicial, 0) as cantidad_inicial,
+                        COALESCE(tif.cantidad_final, 0) as cantidad_guardada,
+                        COALESCE((
+                            SELECT SUM(cd.cantidad) 
+                            FROM compras c
+                            JOIN compras_detalle cd ON cd.compra_id = c.id
+                            JOIN producto_base pb ON pb.id = cd.producto_base_id
+                            JOIN mercancia mp ON mp.producto_base_id = pb.id
+                            WHERE c.empresa_id = %s 
+                            AND c.fecha = DATE(%s)
+                            AND mp.id = m.id
+                        ), 0) as entradas,
+                        COALESCE((
+                            SELECT SUM(cantidad) FROM turno_mermas
+                            WHERE turno_id = %s AND producto_id = m.id AND empresa_id = %s
+                        ), 0) as mermas,
+                        COALESCE((
+                            SELECT SUM(cantidad) FROM consumos_propios
+                            WHERE turno_id = %s AND producto_id = m.id AND empresa_id = %s
+                        ), 0) as consumos
                     FROM mercancia m
                     LEFT JOIN pt_precios p ON p.mercancia_id = m.id AND p.empresa_id = %s
+                    LEFT JOIN turno_inventario ti ON ti.producto_id = m.id AND ti.turno_id = %s AND ti.empresa_id = %s
+                    LEFT JOIN turno_inventario_final tif ON tif.producto_id = m.id AND tif.turno_id = %s AND tif.empresa_id = %s
                     WHERE m.tipo = 'PT' AND m.activo = 1 AND m.empresa_id = %s
                     ORDER BY m.nombre
-                """, (eid, eid))
+                """, (eid, turno['fecha_apertura'], turno['id'], eid, turno['id'], eid, eid, turno['id'], eid, turno['id'], eid, eid))
                 productos = cursor.fetchall()
 
             # Obtener retiros
@@ -6154,6 +6203,42 @@ def cerrar_turno():
             """, (turno['id'], eid))
             mermas = cursor.fetchall()
 
+            # Tickets del turno
+            cursor.execute("""
+                SELECT cv.id, cv.folio, cv.fecha, cv.total, cv.metodo_pago
+                FROM caja_ventas cv
+                WHERE cv.turno_id = %s AND cv.empresa_id = %s AND cv.cancelada = 0
+                ORDER BY cv.fecha ASC
+            """, (turno['id'], eid))
+            tickets = cursor.fetchall()
+
+            # Resumen de ventas por producto
+            cursor.execute("""
+                SELECT m.nombre, SUM(cvd.cantidad) as total_unidades, SUM(cvd.subtotal) as total_importe
+                FROM caja_ventas_detalle cvd
+                JOIN caja_ventas cv ON cv.id = cvd.venta_id
+                JOIN mercancia m ON m.id = cvd.mercancia_id
+                WHERE cv.turno_id = %s AND cv.empresa_id = %s AND cv.cancelada = 0
+                GROUP BY m.id, m.nombre
+                ORDER BY total_importe DESC
+            """, (turno['id'], eid))
+            ventas_por_producto = cursor.fetchall()
+            total_ventas_turno = sum(float(t['total']) for t in tickets)
+
+            # Retiros del turno
+            cursor.execute("""
+                SELECT COALESCE(SUM(monto), 0) as total FROM retiros_efectivo
+                WHERE turno_id = %s AND empresa_id = %s
+            """, (turno['id'], eid))
+            total_retiros = float(cursor.fetchone()['total'])
+
+            # Compras del dia
+            cursor.execute("""
+                SELECT COALESCE(SUM(total), 0) as total FROM compras
+                WHERE empresa_id = %s AND fecha = DATE(%s)
+            """, (eid, turno['fecha_apertura']))
+            total_compras_dia = float(cursor.fetchone()['total'])
+
             ya_validado = session.get(f'turno_{turno["id"]}_validado', False)
 
             cursor.close()
@@ -6169,6 +6254,11 @@ def cerrar_turno():
                 gastos=gastos,
                 total_gastos=total_gastos,
                 mermas=mermas,
+                tickets=tickets,
+                ventas_por_producto=ventas_por_producto,
+                total_ventas_turno=total_ventas_turno,
+                total_retiros=total_retiros,
+                total_compras_dia=total_compras_dia,
                 ya_validado=ya_validado
             )
         
@@ -6497,6 +6587,52 @@ def cerrar_turno_antiguo():
         
         flash(f'❌ Error al cerrar el turno: {str(e)}', 'danger')
         return redirect(url_for('caja'))
+
+@app.route('/cerrar_turno/guardar_borrador', methods=['POST'])
+@require_login
+def cerrar_turno_guardar_borrador():
+    eid = g.empresa_id
+    uid = g.usuario_id
+
+    db = conexion_db()
+    cur = db.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT id FROM turnos 
+            WHERE usuario_id=%s AND empresa_id=%s AND estado='abierto' LIMIT 1
+        """, (uid, eid))
+        turno = cur.fetchone()
+        if not turno:
+            return {'ok': False, 'error': 'No hay turno abierto'}, 400
+
+        turno_id = turno['id']
+        producto_ids = request.form.getlist('producto_id[]')
+        producto_nombres = request.form.getlist('producto_nombre[]')
+        cantidades = request.form.getlist('cantidad_final[]')
+
+        for pid, pnombre, cant in zip(producto_ids, producto_nombres, cantidades):
+            if not cant or not cant.strip():
+                continue
+            cur.execute("""
+                INSERT INTO turno_inventario_final 
+                    (empresa_id, turno_id, producto_id, producto_nombre, cantidad_final, fecha)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE 
+                    cantidad_final = VALUES(cantidad_final),
+                    fecha = NOW()
+            """, (eid, turno_id, int(pid), pnombre, float(cant)))
+
+        db.commit()
+        flash('✅ Avance guardado correctamente.', 'success')
+    except Exception as e:
+        db.rollback()
+        flash(f'❌ Error: {str(e)}', 'danger')
+    finally:
+        cur.close()
+        db.close()
+
+    return redirect(url_for('cerrar_turno'))
+
 
 # ==================== CONSUMOS PROPIOS ====================
 
@@ -14032,6 +14168,12 @@ def nueva_compra():
             compra_id = cur.lastrowid
             print(f"✅ Compra {compra_id} - Encabezado insertado")
 
+            cur.execute("""
+                SELECT tipo_mercancia FROM empresa_configuracion WHERE empresa_id = %s
+            """, (eid,))
+            config_emp = cur.fetchone()
+            tipo_mercancia_empresa = config_emp['tipo_mercancia'] if config_emp else 'materia_prima'
+
             # ✅ INSERTAR DETALLE + ACTUALIZAR INVENTARIO
             productos_insertados = 0
             for x in items:
@@ -14045,27 +14187,8 @@ def nueva_compra():
                       x["contenido_neto_total"], x["precio_unitario"], x["precio_total"]))
 
                 # Verificar si requiere produccion
-                cur.execute("""
-                    SELECT pb.requiere_produccion, m.id as mercancia_id
-                    FROM mercancia m
-                    JOIN producto_base pb ON pb.id = m.producto_base_id
-                    WHERE m.id = %s
-                """, (x["mercancia_id"],))
-                info = cur.fetchone()
-                requiere_produccion = info['requiere_produccion'] if info else 1
-
-                if requiere_produccion:
-                    # Va a inventario MP
-                    cur.execute("""
-                        INSERT INTO inventario_mp
-                        (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado, disponible_base)
-                        VALUES (%s, %s, %s, 0, %s, 0, 0, %s)
-                        ON DUPLICATE KEY UPDATE
-                        entradas = entradas + VALUES(entradas),
-                        disponible_base = disponible_base + VALUES(disponible_base)
-                    """, (eid, x["mercancia_id"], x["nombre"], x["contenido_neto_total"], x["contenido_neto_total"]))
-                else:
-                    # Va directo a PT
+                if tipo_mercancia_empresa == 'producto_directo':
+                    # ALMACÉN ÚNICO: va directo a PT
                     cur.execute("""
                         INSERT INTO inventario_movimientos_pt
                         (empresa_id, pt_id, fecha, tipo_movimiento, cantidad, costo_unitario, costo_total,
@@ -14073,7 +14196,34 @@ def nueva_compra():
                         VALUES (%s, %s, %s, 'entrada', %s, %s, %s, 'compra', %s, %s)
                     """, (eid, x["mercancia_id"], fecha, x["contenido_neto_total"],
                           x["precio_unitario"], x["precio_total"], compra_id, uid))
+                else:
+                    # CON PRODUCCIÓN: verificar si requiere produccion
+                    cur.execute("""
+                        SELECT pb.requiere_produccion
+                        FROM mercancia m
+                        JOIN producto_base pb ON pb.id = m.producto_base_id
+                        WHERE m.id = %s
+                    """, (x["mercancia_id"],))
+                    info = cur.fetchone()
+                    requiere_produccion = info['requiere_produccion'] if info else 1
 
+                    if requiere_produccion:
+                        cur.execute("""
+                            INSERT INTO inventario_mp
+                            (empresa_id, mercancia_id, producto, inventario_inicial, entradas, salidas, aprobado, disponible_base)
+                            VALUES (%s, %s, %s, 0, %s, 0, 0, %s)
+                            ON DUPLICATE KEY UPDATE
+                            entradas = entradas + VALUES(entradas),
+                            disponible_base = disponible_base + VALUES(disponible_base)
+                        """, (eid, x["mercancia_id"], x["nombre"], x["contenido_neto_total"], x["contenido_neto_total"]))
+                    else:
+                        cur.execute("""
+                            INSERT INTO inventario_movimientos_pt
+                            (empresa_id, pt_id, fecha, tipo_movimiento, cantidad, costo_unitario, costo_total,
+                             referencia_tipo, referencia_id, usuario_id)
+                            VALUES (%s, %s, %s, 'entrada', %s, %s, %s, 'compra', %s, %s)
+                        """, (eid, x["mercancia_id"], fecha, x["contenido_neto_total"],
+                              x["precio_unitario"], x["precio_total"], compra_id, uid))
                 productos_insertados += 1
 
             print(f"✅ Compra {compra_id} - {productos_insertados} productos insertados")
@@ -14167,33 +14317,49 @@ def nueva_compra():
     # ========== GET ==========
     conn = conexion_db()
     cur = conn.cursor(dictionary=True, buffered=True)
-    
+
     try:
-        # ✅ CATÁLOGOS FILTRADOS POR EMPRESA
         cur.execute("""
-            SELECT nombre 
-            FROM proveedores 
+            SELECT nombre FROM proveedores
             WHERE empresa_id = %s AND activo = 1
             ORDER BY nombre
         """, (eid,))
         proveedores = cur.fetchall()
-        
+
         cur.execute("""
-            SELECT m.id, m.nombre, pb.nombre as producto_base_nombre
-            FROM mercancia m
-            JOIN producto_base pb ON pb.id = m.producto_base_id
-            WHERE m.empresa_id = %s
-              AND m.tipo = 'MP'
-              AND m.producto_base_id IS NOT NULL
-              AND m.activo = 1
-            ORDER BY m.nombre
+            SELECT tipo_mercancia FROM empresa_configuracion WHERE empresa_id = %s
         """, (eid,))
+        config_emp = cur.fetchone()
+        tipo_mercancia = config_emp['tipo_mercancia'] if config_emp else 'materia_prima'
+
+        if tipo_mercancia == 'producto_directo':
+            cur.execute("""
+                SELECT m.id, m.nombre,
+                       COALESCE(pb.nombre, '— Sin producto base —') as producto_base_nombre
+                FROM mercancia m
+                LEFT JOIN producto_base pb ON pb.id = m.producto_base_id AND pb.id > 0
+                WHERE m.empresa_id = %s
+                  AND m.activo = 1
+                  AND m.producto_base_id > 0
+                ORDER BY m.nombre
+            """, (eid,))
+        else:
+            cur.execute("""
+                SELECT m.id, m.nombre,
+                       COALESCE(pb.nombre, '— Sin producto base —') as producto_base_nombre
+                FROM mercancia m
+                LEFT JOIN producto_base pb ON pb.id = m.producto_base_id AND pb.id > 0
+                WHERE m.empresa_id = %s
+                  AND m.tipo = 'MP'
+                  AND m.activo = 1
+                  AND m.producto_base_id > 0
+                ORDER BY m.nombre
+            """, (eid,))
         productos = cur.fetchall()
-        
-        # Cargar cuentas de gastos
+
         cur.execute("""
-            SELECT id, codigo, nombre 
-            FROM cuentas_contables 
+            SELECT id, codigo, nombre
+            FROM cuentas_contables
             WHERE empresa_id = %s AND codigo LIKE '61%'
             ORDER BY codigo
         """, (eid,))
@@ -14203,10 +14369,10 @@ def nueva_compra():
         cur.close()
         conn.close()
 
-    return render_template('nueva_compra.html', 
-                      proveedores=proveedores, 
-                      productos=productos,
-                      cuentas_gastos=cuentas_gastos)
+    return render_template('nueva_compra.html',
+                           proveedores=proveedores,
+                           productos=productos,
+                           cuentas_gastos=cuentas_gastos)
         
 @app.route('/api/mercancia/barcode/<codigo>')
 @require_login

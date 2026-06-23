@@ -15,7 +15,12 @@
     <!-- Proveedor -->
     <div class="mb-3">
       <label class="form-label">Proveedor:</label>
-      <input type="text" class="form-control" name="proveedor" list="lista_proveedores" required />
+      <input type="text" class="form-control" name="proveedor" 
+             id="inputProveedor"
+             list="lista_proveedores" 
+             required 
+             placeholder="Escribe o selecciona un proveedor"/>
+      <div id="msgProveedor" class="form-text"></div>
       <datalist id="lista_proveedores">
         {% for p in proveedores %}
           <option value="{{ p.nombre }}"></option>
@@ -194,10 +199,11 @@
   function validarFormulario() {
     let valido = true;
 
-    const proveedor = document.querySelector('input[name="proveedor"]').value.trim();
+    const proveedor = document.querySelector('input[name="proveedor"]').value.trim().toLowerCase();
     const fecha = document.querySelector('input[name="fecha"]').value.trim();
     const factura = document.querySelector('input[name="numero_factura"]').value.trim();
     if (!proveedor || !fecha || !factura) valido = false;
+    if (!proveedoresValidos.includes(proveedor)) valido = false;
 
     // Contar productos válidos
     let productosValidos = 0;
@@ -217,7 +223,7 @@
     if (productosValidos === 0) valido = false;
 
     btnRegistrar.disabled = !valido;
-    btnAddProducto.disabled = !valido;
+    btnAddProducto.disabled = !false;
   }
 
   function calcRowProducto(tr) {
@@ -286,7 +292,7 @@
 
     prodInput.addEventListener('change', () => {
       const val = prodInput.value;
-      const opt = Array.from(document.querySelectorAll('#d_mercancia option')).find(o => o.value === val);
+      const opt = Array.from(document.querySelectorAll('#d_mercancia option')).find(o => o.value.trim().toLowerCase() === val.trim().toLowerCase());
       hiddenId.value = opt ? opt.dataset.id : '';
       if (hiddenId.value) {
         msg.textContent = '';
@@ -454,6 +460,29 @@
       buscarPorCodigoBarras(e.target);
     }
   });
+  // Validación proveedor en tiempo real
+  const inputProveedor = document.getElementById('inputProveedor');
+  const msgProveedor = document.getElementById('msgProveedor');
+  const proveedoresValidos = Array.from(document.querySelectorAll('#lista_proveedores option')).map(o => o.value.trim().toLowerCase());
 
+  inputProveedor.addEventListener('change', () => {
+    const val = inputProveedor.value.trim().toLowerCase();
+    if (!val) {
+      msgProveedor.textContent = '';
+      return;
+    }
+    if (proveedoresValidos.includes(val)) {
+      msgProveedor.innerHTML = '✅ Proveedor válido';
+      msgProveedor.className = 'form-text text-success';
+      inputProveedor.classList.remove('is-invalid');
+      inputProveedor.classList.add('is-valid');
+    } else {
+      msgProveedor.innerHTML = '❌ Proveedor no registrado. <a href="/registrar_proveedor" target="_blank" class="text-danger fw-bold">Regístralo aquí →</a>';
+      msgProveedor.className = 'form-text text-danger';
+      inputProveedor.classList.add('is-invalid');
+      inputProveedor.classList.remove('is-valid');
+    }
+    validarFormulario();
+  });
 </script>
 {% endblock %}

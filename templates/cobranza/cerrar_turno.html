@@ -32,44 +32,118 @@
         <input type="hidden" name="pedir_inventario" value="{{ 'true' if pedir_inventario else 'false' }}">
 
         {% if pedir_inventario %}
-        <!-- SECCIÓN 1: CONTEO FINAL -->
-        <h5 class="mb-3">📦 1. Conteo Final de Productos</h5>
-        <p class="text-muted small">Anota la cantidad física que hay en este momento.</p>
+       <!-- SECCIÓN 1: MOVIMIENTOS DEL TURNO -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="mb-0">📦 1. Movimientos del Turno</h5>
+          <span class="text-muted small">
+            Frecuencia de Inventario Físico: <strong>{{ frecuencia }}</strong> — 
+            <a href="{{ url_for('editar_perfil_empresa', empresa_id=g.empresa_id) }}" class="text-danger fw-bold">CAMBIAR</a>
+          </span>
+        </div>
+        <p class="text-muted small">Anota el conteo físico final de cada producto.</p>
         <div class="table-responsive mb-4">
-          <table class="table table-sm table-bordered">
+          <table class="table table-sm table-bordered align-middle">
             <thead class="table-secondary">
               <tr>
                 <th>Producto</th>
-                <th class="text-center" style="width: 150px;">Conteo Final</th>
+                <th class="text-center">Inv. Inicial</th>
+                <th class="text-center">Entradas</th>
+                <th class="text-center">Mermas</th>
+                <th class="text-center">Consumos</th>
+                <th class="text-center" style="width:130px;">Inventario de Turno Final</th>
+                <th class="text-center">Diferencia</th>
               </tr>
             </thead>
             <tbody>
               {% for p in productos %}
               <tr>
-                <td>{{ p.nombre }}</td>
-                <td>
+                <td><strong>{{ p.nombre }}</strong></td>
+                <td class="text-center">{{ "%.2f"|format(p.cantidad_inicial) }}</td>
+                <td class="text-center text-success">
+                  {% if p.entradas > 0 %}
+                    <strong>+{{ "%.2f"|format(p.entradas) }}</strong>
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-center text-danger">
+                  {% if p.mermas > 0 %}
+                    {{ "%.2f"|format(p.mermas) }}
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-center text-warning">
+                  {% if p.consumos > 0 %}
+                    {{ "%.2f"|format(p.consumos) }}
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-center">
                   <input type="hidden" name="producto_id[]" value="{{ p.id }}">
                   <input type="hidden" name="producto_nombre[]" value="{{ p.nombre }}">
                   <input type="hidden" name="producto_precio[]" value="{{ p.precio }}">
                   <input type="number" name="cantidad_final[]"
-                         class="form-control form-control-sm text-center"
-                         step="0.01" min="0" value="0" placeholder="0.00">
+                         class="form-control form-control-sm text-center cant-final"
+                         step="0.01" min="0"
+                         value="{{ p.cantidad_guardada }}"
+                         data-inicial="{{ p.cantidad_inicial }}"
+                         data-entradas="{{ p.entradas }}"
+                         data-mermas="{{ p.mermas }}"
+                         data-consumos="{{ p.consumos }}"
+                         placeholder="0.00">
                 </td>
+                <td class="text-center diferencia-col">—</td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
         <hr>
+      
         {% else %}
-        <!-- SIN INVENTARIO FÍSICO HOY -->
-        <div class="alert alert-info mb-4">
-          <i class="fas fa-info-circle"></i>
-          <strong> Sin conteo físico hoy</strong> — La frecuencia configurada es 
-          <strong>{{ frecuencia }}</strong>. El cierre se realizará solo con arqueo de efectivo.
+        <!-- SIN INVENTARIO FÍSICO - SOLO LECTURA -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="mb-0">📦 1. Movimientos del Turno</h5>
+          <span class="text-muted small">
+            Frec: <strong>{{ frecuencia }}</strong> — 
+            <a href="{{ url_for('editar_perfil_empresa', empresa_id=g.empresa_id) }}" class="text-danger fw-bold">CAMBIAR</a>
+          </span>
+        </div>
+        <p class="text-muted small">Modo solo lectura — no se requiere conteo físico hoy.</p>
+        <div class="table-responsive mb-4">
+          <table class="table table-sm table-bordered align-middle">
+            <thead class="table-secondary">
+              <tr>
+                <th>Producto</th>
+                <th class="text-center">Inv. Inicial</th>
+                <th class="text-center">Entradas</th>
+                <th class="text-center">Mermas</th>
+                <th class="text-center">Consumos</th>
+                <th class="text-center">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in productos %}
+              <tr>
+                <td><strong>{{ p.nombre }}</strong></td>
+                <td class="text-center">{{ "%.2f"|format(p.cantidad_inicial) }}</td>
+                <td class="text-center text-success">
+                  {% if p.entradas > 0 %}<strong>+{{ "%.2f"|format(p.entradas) }}</strong>
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-center text-danger">
+                  {% if p.mermas > 0 %}{{ "%.2f"|format(p.mermas) }}
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-center text-warning">
+                  {% if p.consumos > 0 %}{{ "%.2f"|format(p.consumos) }}
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-center diferencia-col fw-bold text-success">0.00</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
         <hr>
         {% endif %}
+        
 
         <hr>
 
@@ -111,9 +185,11 @@
           </table>
         </div>
 
+      
         <hr>
 
-        <!-- SECCIÓN 3: GASTOS Y COMPRAS -->
+       
+        <!-- SECCIÓN 4: GASTOS Y COMPRAS -->
         <h5 class="mb-3">🛒 3. Compras y Gastos del Turno</h5>
         
         <button type="button" class="btn btn-outline-primary btn-sm mb-3" 
@@ -166,7 +242,7 @@
 
         <hr>
 
-        <!-- SECCIÓN 4: CONTEO DE DINERO -->
+        <!-- SECCIÓN 5: CONTEO DE DINERO -->
         <h5 class="mb-3">💵 4. Conteo de Dinero en Caja</h5>
         <p class="text-muted">Cuenta TODO el dinero que hay actualmente.</p>
         
@@ -262,6 +338,127 @@
         </div>
 
         <hr>
+        
+
+
+        <hr>
+
+        <!-- SECCIÓN 5: TICKETS DE VENTA -->
+        <h5 class="mb-3">🧾 5. Tickets de Venta del Turno</h5>
+        <div class="table-responsive mb-3">
+          <table class="table table-sm table-bordered">
+            <thead class="table-secondary">
+              <tr>
+                <th>Hora</th>
+                <th>Ticket #</th>
+                <th>Método Pago</th>
+                <th class="text-end">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for t in tickets %}
+              <tr>
+                <td>{{ t.fecha.strftime('%H:%M') }}</td>
+                <td>{{ t.folio or t.id }}</td>
+                <td>{{ t.metodo_pago }}</td>
+                <td class="text-end">${{ "%.2f"|format(t.total) }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="text-center text-muted">Sin ventas en este turno</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            {% if tickets %}
+            <tfoot class="table-secondary fw-bold">
+              <tr>
+                <td colspan="3" class="text-end">Total ventas:</td>
+                <td class="text-end">${{ "%.2f"|format(total_ventas_turno) }}</td>
+              </tr>
+            </tfoot>
+            {% endif %}
+          </table>
+        </div>
+
+        <!-- Resumen por producto -->
+        <h6 class="mb-2 text-muted">Total vendido por producto:</h6>
+        <div class="table-responsive mb-4">
+          <table class="table table-sm table-bordered">
+            <thead class="table-secondary">
+              <tr>
+                <th>Producto</th>
+                <th class="text-center">Unidades</th>
+                <th class="text-end">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for v in ventas_por_producto %}
+              <tr>
+                <td>{{ v.nombre }}</td>
+                <td class="text-center">{{ "%.2f"|format(v.total_unidades) }}</td>
+                <td class="text-end">${{ "%.2f"|format(v.total_importe) }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="3" class="text-center text-muted">Sin detalle disponible</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <hr>
+
+        <!-- SECCIÓN 6: RESUMEN DE CORTE -->
+        <h5 class="mb-3">📊 6. Resumen de Corte de Caja</h5>
+        <div class="row g-3 mb-4">
+          <div class="col-md-6">
+            <div class="card border-success">
+              <div class="card-header bg-success text-white fw-bold">💰 Ingresos</div>
+              <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                  <tr>
+                    <td>Total Ventas</td>
+                    <td class="text-end fw-bold text-success">${{ "%.2f"|format(total_ventas_turno) }}</td>
+                  </tr>
+                  <tr class="table-success fw-bold">
+                    <td>TOTAL INGRESOS</td>
+                    <td class="text-end">${{ "%.2f"|format(total_ventas_turno) }}</td>
+                  </tr>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card border-danger">
+              <div class="card-header bg-danger text-white fw-bold">💸 Salidas</div>
+              <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                  <tr>
+                    <td>1. Compras y Gastos</td>
+                    <td class="text-end">${{ "%.2f"|format(total_gastos + total_compras_dia) }}</td>
+                  </tr>
+                  <tr>
+                    <td>2. Retiros de Efectivo</td>
+                    <td class="text-end">${{ "%.2f"|format(total_retiros) }}</td>
+                  </tr>
+                  <tr>
+                    <td>3. Depósitos</td>
+                    <td class="text-end">$0.00</td>
+                  </tr>
+                  <tr>
+                    <td>4. Corte Final</td>
+                    <td class="text-end" id="corteResumen">$0.00</td>
+                  </tr>
+                  <tr class="table-danger fw-bold">
+                    <td>TOTAL SALIDAS</td>
+                    <td class="text-end" id="totalSalidasResumen">$0.00</td>
+                  </tr>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Notas finales -->
         <div class="mb-3">
@@ -271,6 +468,14 @@
         </div>
 
         <!-- Botones -->
+         <div class="d-flex gap-2 mt-3">
+          <button type="submit" form="frmBorrador" class="btn btn-success flex-fill">
+            <i class="fas fa-save"></i> Guardar Avance
+          </button>
+          <button type="submit" class="btn btn-danger flex-fill">
+            <i class="fas fa-lock"></i> Cerrar Turno Definitivamente
+          </button>
+        </div>
         <div class="d-flex gap-2">
           <a href="{{ url_for('caja') }}" class="btn btn-secondary">Cancelar</a>
           <button type="submit" class="btn btn-danger" 
@@ -279,6 +484,17 @@
           </button>
         </div>
 
+      </form>
+
+      </form>
+
+      <form method="POST" action="{{ url_for('cerrar_turno_guardar_borrador') }}" id="frmBorrador">
+        <input type="hidden" name="pedir_inventario" value="{{ 'true' if pedir_inventario else 'false' }}">
+        {% for p in productos %}
+          <input type="hidden" name="producto_id[]" value="{{ p.id }}">
+          <input type="hidden" name="producto_nombre[]" value="{{ p.nombre }}">
+          <input type="hidden" name="cantidad_final[]" class="cant-borrador" data-id="{{ p.id }}" value="{{ p.cantidad_guardada }}">
+        {% endfor %}
       </form>
 
     </div>
@@ -567,6 +783,50 @@
       }
     });
   }
+  // Sincronizar cantidades al form borrador
+  document.getElementById('frmBorrador')?.addEventListener('submit', function() {
+    const cantidades = document.querySelectorAll('input[name="cantidad_final[]"]');
+    const borradores = document.querySelectorAll('.cant-borrador');
+    cantidades.forEach((input, i) => {
+      if (borradores[i]) borradores[i].value = input.value;
+    });
+  });
+  // Calcular diferencia por fila
+  document.querySelectorAll('.cant-final').forEach(input => {
+    function calcDif() {
+      const inicial = parseFloat(input.dataset.inicial) || 0;
+      const entradas = parseFloat(input.dataset.entradas) || 0;
+      const mermas = parseFloat(input.dataset.mermas) || 0;
+      const consumos = parseFloat(input.dataset.consumos) || 0;
+      const final = parseFloat(input.value) || 0;
+      const esperado = inicial + entradas - mermas - consumos;
+      const dif = final - esperado;
+      const td = input.closest('tr').querySelector('.diferencia-col');
+      if (td) {
+        td.textContent = dif.toFixed(2);
+        td.className = 'text-center diferencia-col fw-bold ' + (dif < 0 ? 'text-danger' : dif > 0 ? 'text-warning' : 'text-success');
+      }
+    }
+    input.addEventListener('input', calcDif);
+    calcDif();
+  });
+
+    function actualizarResumen() {
+      const totalContado = parseFloat(document.getElementById('totalContado').textContent.replace('$','')) || 0;
+      const totalGastosNum = parseFloat(document.getElementById('totalGastosDisplay').textContent.replace('$','')) || 0;
+      const totalCompras = {{ total_compras_dia }};
+      const totalRetiros = {{ total_retiros }};
+
+      document.getElementById('corteResumen').textContent = '$' + totalContado.toFixed(2);
+      const totalSalidas = totalGastosNum + totalCompras + totalRetiros + totalContado;
+      document.getElementById('totalSalidasResumen').textContent = '$' + totalSalidas.toFixed(2);
+    }
+
+    document.querySelectorAll('.denominacion-cierre, #dolaresInputC, #monedasInput').forEach(input => {
+      input.addEventListener('input', actualizarResumen);
+    });
+    actualizarResumen();                      
+
 </script>
 
 {% endblock %}
