@@ -1100,12 +1100,21 @@ def caja_cobrar():
         cur = conn.cursor()
 
         # Encabezado (incluye empresa)
+        # Obtener turno abierto
+        cur.execute("""
+            SELECT id FROM turnos 
+            WHERE usuario_id = %s AND empresa_id = %s AND estado = 'abierto' 
+            LIMIT 1
+        """, (uid, eid))
+        turno_row = cur.fetchone()
+        turno_id = turno_row[0] if turno_row else None
+
         cur.execute(
             """
-            INSERT INTO caja_ventas (fecha, usuario_id, total, empresa_id)
-            VALUES (NOW(), %s, %s, %s)
+            INSERT INTO caja_ventas (fecha, usuario_id, total, empresa_id, turno_id)
+            VALUES (NOW(), %s, %s, %s, %s)
             """,
-            (uid, total, eid)
+            (uid, total, eid, turno_id)
         )
         venta_id = cur.lastrowid
 
