@@ -5615,7 +5615,9 @@ def agregar_merma_ajax():
     uid = g.usuario_id
     
     try:
-        data = request.get_json()
+        data = request.get_json(force=True, silent=True)
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON recibido'})
         producto_id = int(data.get('producto_id'))
         producto_nombre = data.get('producto_nombre', '')
         cantidad = float(data.get('cantidad', 0))
@@ -5781,7 +5783,7 @@ def eliminar_merma(merma_id):
         flash(f'Error: {str(e)}', 'danger')
         return redirect(url_for('cerrar_turno'))
 
-# ==================== HISTORIAL DE TICKETS ====================
+# ==================== HISTORIAL DE TICKETS Y CORTE ====================
 
 @app.route('/historial_tickets')
 @require_login
@@ -5898,6 +5900,77 @@ def ver_ticket(ticket_id):
     db.close()
     
     return render_template('cobranza/ver_ticket.html', venta=venta, detalle=detalle)
+
+@app.route('/turnos/corte/<int:turno_id>')
+@require_login
+def detalle_corte(turno_id):
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT * FROM turnos WHERE id = %s AND empresa_id = %s AND estado = 'cerrado'
+        """, (turno_id, eid))
+        turno = cur.fetchone()
+        if not turno:
+            flash('Corte no encontrado', 'danger')
+            return redirect(url_for('historial_turnos'))
+
+        cur.execute("""
+            SELECT * FROM turno_inventario_final
+            WHERE turno_id = %s AND empresa_id = %s
+            ORDER BY producto_nombre
+        """, (turno_id, eid))
+        inventario = cur.fetchall()
+
+        cur.execute("""
+            SELECT * FROM turno_gastos WHERE turno_id = %s AND empresa_id = %s
+        """, (turno_id, eid))
+        gastos = cur.fetchall()
+
+        cur.execute("""
+            SELECT * FROM retiros_efectivo WHERE turno_id = %s AND empresa_id = %s
+        """, (turno_id, eid))
+        retiros = cur.fetchall()
+
+        cur.execute("""
+            SELECT cv.id, cv.folio, cv.fecha, cv.total, cv.metodo_pago
+            FROM caja_ventas cv
+            WHERE cv.turno_id = %s AND cv.empresa_id = %s AND cv.cancelada = 0
+            ORDER BY cv.fecha
+        """, (turno_id, eid))
+        tickets_raw = cur.fetchall()
+
+        tickets = []
+        for ticket in tickets_raw:
+            cur.execute("""
+                SELECT m.nombre, cvd.cantidad, cvd.precio_unitario, cvd.subtotal
+                FROM caja_ventas_detalle cvd
+                JOIN mercancia m ON m.id = cvd.mercancia_id
+                WHERE cvd.venta_id = %s
+            """, (ticket['id'],))
+            detalle = cur.fetchall()
+            ticket['detalle'] = detalle
+            tickets.append(ticket)
+
+        total_gastos = float(sum(g['monto'] for g in gastos))
+        total_retiros = float(sum(r['monto'] for r in retiros))
+        total_ventas = float(turno['total_ventas'] or 0)
+
+    finally:
+        cur.close()
+        conn.close()
+
+    return render_template('cobranza/detalle_corte.html',
+        turno=turno,
+        inventario=inventario,
+        gastos=gastos,
+        retiros=retiros,
+        tickets=tickets,
+        total_gastos=total_gastos,
+        total_retiros=total_retiros,
+        total_ventas=total_ventas
+    )
 
 
 # ==================== RETIRO PARCIAL DE EFECTIVO ====================
@@ -6148,7 +6221,7 @@ def cerrar_turno():
                 if not ultimo:
                     pedir_inventario = True
                 else:
-                    from datetime import datetime, timedelta
+                
                     pedir_inventario = (datetime.now() - ultimo).days >= dias
 
             productos = []
@@ -6161,14 +6234,12 @@ def cerrar_turno():
                         COALESCE(ti.cantidad_inicial, 0) as cantidad_inicial,
                         COALESCE(tif.cantidad_final, 0) as cantidad_guardada,
                         COALESCE((
-                            SELECT SUM(cd.cantidad) 
-                            FROM compras c
-                            JOIN compras_detalle cd ON cd.compra_id = c.id
-                            JOIN producto_base pb ON pb.id = cd.producto_base_id
-                            JOIN mercancia mp ON mp.producto_base_id = pb.id
-                            WHERE c.empresa_id = %s 
-                            AND c.fecha = DATE(%s)
-                            AND mp.id = m.id
+                            SELECT SUM(ipt.cantidad)
+                            FROM inventario_movimientos_pt ipt
+                            WHERE ipt.empresa_id = %s
+                            AND ipt.pt_id = m.id
+                            AND ipt.tipo_movimiento = 'entrada'
+                            AND DATE(ipt.fecha) = DATE(%s)
                         ), 0) as entradas,
                         COALESCE((
                             SELECT SUM(cantidad) FROM turno_mermas
@@ -6202,7 +6273,7 @@ def cerrar_turno():
                 ORDER BY fecha DESC
             """, (turno['id'], eid))
             gastos = cursor.fetchall()
-            total_gastos = sum(g['monto'] for g in gastos)
+            total_gastos = float(sum(g['monto'] for g in gastos))
 
             # Obtener mermas
             cursor.execute("""
@@ -6245,6 +6316,7 @@ def cerrar_turno():
             cursor.execute("""
                 SELECT COALESCE(SUM(total), 0) as total FROM compras
                 WHERE empresa_id = %s AND fecha = DATE(%s)
+                AND forma_pago != 'credito'
             """, (eid, turno['fecha_apertura']))
             total_compras_dia = float(cursor.fetchone()['total'])
 
@@ -6252,6 +6324,8 @@ def cerrar_turno():
 
             cursor.close()
             db.close()
+
+            diferencias_pendientes = session.get(f'turno_{turno["id"]}_diferencias', [])
 
             return render_template(
                 'cobranza/cerrar_turno.html',
@@ -6268,6 +6342,7 @@ def cerrar_turno():
                 total_ventas_turno=total_ventas_turno,
                 total_retiros=total_retiros,
                 total_compras_dia=total_compras_dia,
+                diferencias_pendientes=diferencias_pendientes,
                 ya_validado=ya_validado
             )
         
@@ -6325,10 +6400,7 @@ def cerrar_turno():
             
             if diferencias_inventario:
                 session[f'turno_{turno["id"]}_validado'] = True
-                flash('⚠️ ATENCIÓN: Favor de verificar el conteo.', 'warning')
-                for dif in diferencias_inventario:
-                    flash(f"• {dif['producto']}: Diferencia de {dif['diferencia']:.2f} unidades (${dif['valor']:.2f})", 'warning')
-                flash('Presiona "Cerrar Turno" nuevamente para confirmar.', 'info')
+                session[f'turno_{turno["id"]}_diferencias'] = diferencias_inventario
                 cursor.close()
                 db.close()
                 return redirect(url_for('cerrar_turno'))
@@ -6357,6 +6429,9 @@ def cerrar_turno():
                 INSERT INTO turno_inventario_final 
                 (empresa_id, turno_id, producto_id, producto_nombre, cantidad_final)
                 VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    cantidad_final = VALUES(cantidad_final),
+                    producto_nombre = VALUES(producto_nombre)
             """, (eid, turno['id'], pid, pnombre, cant_final))
             
             cursor.execute("""
@@ -6406,6 +6481,7 @@ def cerrar_turno():
         billetes_500 = int(request.form.get('billetes_500', 0))
         dolares = float(request.form.get('dolares', 0))
         monedas = float(request.form.get('monedas', 0))
+        retiro_corte = float(request.form.get('retiro_corte', 0) or 0)
         
         tipo_cambio = float(turno['tipo_cambio'])
         total_billetes = (billetes_20 * 20 + billetes_50 * 50 + billetes_100 * 100 + 
@@ -6426,47 +6502,97 @@ def cerrar_turno():
             WHERE turno_id = %s AND empresa_id = %s
         """, (turno['id'], eid))
         total_retiros = float(cursor.fetchone()['total'])
-        
+
         cursor.execute("""
             SELECT COALESCE(SUM(monto), 0) as total FROM turno_gastos
             WHERE turno_id = %s AND empresa_id = %s
         """, (turno['id'], eid))
         total_gastos = float(cursor.fetchone()['total'])
-        
-        total_corte = total_ventas_calculado
-        efectivo_deberia_haber = total_ventas_calculado - total_retiros - total_gastos
-        diferencia_efectivo = conteo_final - efectivo_deberia_haber
-        
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(total), 0) as total FROM compras
+            WHERE empresa_id = %s AND fecha = DATE(%s)
+            AND forma_pago != 'credito'
+        """, (eid, turno['fecha_apertura']))
+        total_compras_dia = float(cursor.fetchone()['total'])
+
+        # Ventas reales de caja (tickets)
+        cursor.execute("""
+            SELECT COALESCE(SUM(total), 0) as total FROM caja_ventas
+            WHERE turno_id = %s AND empresa_id = %s AND cancelada = 0
+        """, (turno['id'], eid))
+        total_ventas_caja = float(cursor.fetchone()['total'])
+
+        # Ventas por producto desde tickets reales
+        cursor.execute("""
+            SELECT m.nombre, SUM(cvd.cantidad) as total_unidades, 
+                   SUM(cvd.subtotal) as total_importe,
+                   cvd.precio_unitario as precio
+            FROM caja_ventas_detalle cvd
+            JOIN caja_ventas cv ON cv.id = cvd.venta_id
+            JOIN mercancia m ON m.id = cvd.mercancia_id
+            WHERE cv.turno_id = %s AND cv.empresa_id = %s AND cv.cancelada = 0
+            GROUP BY m.id, m.nombre, cvd.precio_unitario
+            ORDER BY total_importe DESC
+        """, (turno['id'], eid))
+        ventas_tickets = cursor.fetchall()
+
+        # Si no hay ventas por ticket, usar las calculadas por inventario
+        if ventas_tickets:
+            ventas_resumen = [{'producto': v['nombre'], 
+                               'vendidas': float(v['total_unidades']),
+                               'precio': float(v['precio']),
+                               'importe': float(v['total_importe']),
+                               'inicial': 0, 'consumos': 0, 'mermas': 0, 'final': 0}
+                              for v in ventas_tickets]
+            total_ventas_final = total_ventas_caja
+        else:
+            ventas_resumen = ventas_por_producto
+            total_ventas_final = total_ventas_calculado
+
+        conteo_final = float(conteo_final)
+        total_retiros = float(total_retiros)
+        total_gastos = float(total_gastos)
+        total_compras_dia = float(total_compras_dia)
+        total_ventas_final = float(total_ventas_final)
+        fondo = float(turno['fondo_inicial'])
+        corte_sin_fondo = conteo_final - fondo
+        efectivo_esperado = total_ventas_final - total_retiros - total_gastos - total_compras_dia
+        diferencia_efectivo = corte_sin_fondo - efectivo_esperado
+
         notas_cierre = request.form.get('notas_cierre', '')
-        
+
         cursor.execute("""
             UPDATE turnos 
             SET estado = 'cerrado',
                 fecha_cierre = %s,
-                fondo_final = %s,
+                efectivo_final = %s,
                 total_ventas = %s,
                 diferencia = %s,
                 notas = CONCAT(COALESCE(notas, ''), '\nCierre: ', %s)
             WHERE id = %s AND empresa_id = %s
-        """, (datetime.now(), conteo_final + float(turno['fondo_inicial']),
-              total_ventas_calculado, diferencia_efectivo, notas_cierre, turno['id'], eid))
-        
+        """, (datetime.now(), conteo_final, total_ventas_final, 
+              diferencia_efectivo, notas_cierre, turno['id'], eid))
+
         db.commit()
         cursor.close()
         db.close()
-        
+
         session.pop(f'turno_{turno["id"]}_validado', None)
         session.pop('turno_actual', None)
-        
+
         return render_template(
             'cobranza/resumen_cierre.html',
             turno=turno,
-            ventas_por_producto=ventas_por_producto,
-            total_ventas=total_ventas_calculado,
+            ventas_por_producto=ventas_resumen,
+            total_ventas=total_ventas_final,
             total_retiros=total_retiros,
             total_gastos=total_gastos,
+            total_compras_dia=total_compras_dia,
             conteo_final=conteo_final,
-            total_corte=total_corte,
+            fondo=fondo,
+            corte_sin_fondo=retiro_corte,
+            efectivo_esperado=efectivo_esperado,
             diferencia=diferencia_efectivo
         )
         
@@ -6641,6 +6767,31 @@ def cerrar_turno_guardar_borrador():
         db.close()
 
     return redirect(url_for('cerrar_turno'))
+
+@app.route('/turnos/historial')
+@require_login
+def historial_turnos():
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("""
+            SELECT 
+                t.id, t.usuario_nombre, t.fecha_apertura, t.fecha_cierre,
+                t.total_ventas, t.diferencia, t.fondo_inicial, t.efectivo_final,
+                COALESCE((SELECT SUM(monto) FROM turno_gastos WHERE turno_id = t.id AND empresa_id = t.empresa_id), 0) as total_gastos,
+                COALESCE((SELECT SUM(monto) FROM retiros_efectivo WHERE turno_id = t.id AND empresa_id = t.empresa_id), 0) as total_retiros
+            FROM turnos t
+            WHERE t.empresa_id = %s AND t.estado = 'cerrado'
+            ORDER BY t.fecha_cierre DESC
+        """, (eid,))
+        turnos = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+    return render_template('cobranza/historial_turnos.html', turnos=turnos)
+
+
 
 
 # ==================== CONSUMOS PROPIOS ====================
@@ -14108,7 +14259,7 @@ def nueva_compra():
                         SELECT m.id, m.nombre, m.producto_base_id, m.cont_neto, pb.nombre AS pb_nombre
                         FROM mercancia m
                         LEFT JOIN producto_base pb ON pb.id = m.producto_base_id
-                        WHERE m.id = %s AND m.empresa_id = %s AND m.tipo = 'MP'
+                        WHERE m.id = %s AND m.empresa_id = %s AND m.activo = 1
                     """, (mercancia_id, eid))
                     merc = cur.fetchone()
                     
@@ -15600,7 +15751,7 @@ def registros_historicos_dashboard():
     eid = g.empresa_id
     
     # Obtener mes/año del parámetro o usar actual
-    from datetime import datetime, timedelta
+    
     import calendar
     
     mes = request.args.get('mes', type=int, default=datetime.now().month)

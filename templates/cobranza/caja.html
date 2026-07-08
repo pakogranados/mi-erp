@@ -280,38 +280,7 @@
 
       <hr>
       
-      <!-- TOTALES DESTACADOS -->
-      <div class="totales-destacados">
-        <div class="tot-row">
-          <span>Sub Total</span>
-          <strong>${{ "%.2f"|format(totals.subtotal) }}</strong>
-        </div>
-        <div class="tot-row">
-          <span>IVA</span>
-          <strong>${{ "%.2f"|format(totals.iva) }}</strong>
-        </div>
-        <div class="tot-row">
-          <span>Total</span>
-          <strong>${{ "%.2f"|format(totals.total) }}</strong>
-        </div>
-        <div class="tot-row">
-          <span>Cobro Pesos</span>
-          <strong id="cobroPesosSidebar">$0.00</strong>
-        </div>
-        <div class="tot-row">
-          <span>Cobro Dólares</span>
-          <strong id="cobroDolaresSidebar">$0.00 USD</strong>
-        </div>
-        <div class="tot-row">
-          <span>Suma Cobro</span>
-          <strong id="sumaCobro">$0.00</strong>
-        </div>
-        <div class="tot-row">
-          <span>Cambio</span>
-          <strong id="cambioSidebar">$0.00</strong>
-        </div>
-      </div>
-
+      
       <div class="d-grid mt-2">
         <form method="post" action="{{ url_for('caja_cobrar') }}" id="frmCobrar">
           <input type="hidden" name="tipo" value="ticket">
@@ -468,24 +437,55 @@
           </div>
         </form>
       </div>
-    </div>
+</div>
   </div>
 
   <!-- DER: COBRO -->
   <div class="pos-panel">
     <div class="pos-head">Cobro</div>
     <div class="pos-body">
-      
+
+      <!-- TOTALES DESTACADOS -->
+      <div class="totales-destacados mt-2">
+        <div class="tot-row">
+          <span>Sub Total</span>
+          <strong>${{ "%.2f"|format(totals.subtotal) }}</strong>
+        </div>
+        <div class="tot-row">
+          <span>IVA</span>
+          <strong>${{ "%.2f"|format(totals.iva) }}</strong>
+        </div>
+        <div class="tot-row">
+          <span>Total</span>
+          <strong>${{ "%.2f"|format(totals.total) }}</strong>
+        </div>
+        <div class="tot-row">
+          <span>Cobro Pesos</span>
+          <strong id="cobroPesosSidebar">$0.00</strong>
+        </div>
+        <div class="tot-row">
+          <span>Cobro Dólares</span>
+          <strong id="cobroDolaresSidebar">$0.00 USD</strong>
+        </div>
+        <div class="tot-row">
+          <span>Suma Cobro</span>
+          <strong id="sumaCobro">$0.00</strong>
+        </div>
+        <div class="tot-row">
+          <span>Cambio</span>
+          <strong id="cambioSidebar">$0.00</strong>
+        </div>
+      </div>
+
       <!-- Botón Proceder al Cobro -->
-      <div id="btnProcederWrapper">
+      <div id="btnProcederWrapper" class="mt-2">
         <button id="btnProcederCobro" class="btn btn-primary w-100">
           💳 Proceder al Cobro
         </button>
       </div>
-      
+
       <!-- Sección de Cobro (oculta inicialmente) -->
       <div id="seccionCobro" style="display:none;">
-        
         <div class="currency-section">
           <div class="currency-title">💵 Pesos Mexicanos (MXN)</div>
           <input type="number" id="cobroPesos" class="form-control mb-2" placeholder="$0.00" step="0.01">
@@ -498,7 +498,6 @@
             <button class="btn btn-sm btn-outline-success" id="exactoBtn">Exacto</button>
           </div>
         </div>
-
         <div class="currency-section">
           <div class="currency-title">💵 Dólares (USD)</div>
           <input type="number" id="cobroDolares" class="form-control mb-2" placeholder="$0.00 USD" step="0.01">
@@ -511,11 +510,9 @@
             <button class="btn btn-sm btn-outline-secondary usd-pay-btn" data-pay-usd="100">$100</button>
           </div>
         </div>
-
         <div class="text-center mb-2">
           <small class="text-muted">Tipo de cambio: ${{ "%.2f"|format(tipo_cambio) }} MXN/USD</small>
         </div>
-
         <button id="btnConfirmarCobro" class="btn btn-success w-100">
           ✅ Confirmar Cobro
         </button>

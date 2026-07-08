@@ -3,7 +3,13 @@
 <div class="container-fluid mt-4">
   <div class="card">
     <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
-      <h4 class="mb-0">🔒 Cierre de Turno #{{ turno.id }}</h4>
+      <div>
+        <h4 class="mb-0">🔒 Cierre de Turno #{{ turno.id }}</h4>
+        <small>
+          📅 {{ turno.fecha_apertura.strftime('%d/%m/%Y') }} — 
+          👤 {{ turno.usuario_nombre }}
+        </small>
+      </div>
       <a href="{{ url_for('caja') }}" class="btn btn-light btn-sm">
         <i class="fas fa-cash-register"></i> Ir a Caja
       </a>
@@ -20,10 +26,49 @@
           </p>
         </div>
 
-        {% if ya_validado %}
-        <div class="alert alert-danger">
-          <h5>⚠️ CONFIRMAR CIERRE</h5>
-          <p class="mb-0">Se detectaron diferencias. Si los datos son correctos, presiona "Cerrar Turno" para confirmar el cierre definitivo.</p>
+        {% if ya_validado and diferencias_pendientes %}
+        <!-- Modal de diferencias -->
+        <div class="modal fade show" id="modalDiferencias" tabindex="-1" 
+             style="display:block; background:rgba(0,0,0,0.5);">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header bg-warning">
+                <h5 class="modal-title fw-bold">⚠️ Diferencias Detectadas</h5>
+              </div>
+              <div class="modal-body">
+                <p class="text-muted mb-3">Se encontraron diferencias entre el inventario esperado y el contado:</p>
+                <table class="table table-sm table-bordered mb-3">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Producto</th>
+                      <th class="text-center">Diferencia</th>
+                      <th class="text-end">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for d in diferencias_pendientes %}
+                    <tr>
+                      <td>{{ d.producto }}</td>
+                      <td class="text-center {% if d.diferencia < 0 %}text-danger{% else %}text-warning{% endif %}">
+                        {{ "%.2f"|format(d.diferencia) }}
+                      </td>
+                      <td class="text-end text-danger">${{ "%.2f"|format(d.valor) }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                <div class="d-flex gap-2">
+                  <a href="{{ url_for('cerrar_turno') }}" class="btn btn-warning flex-fill"
+                     onclick="session.clear()">
+                    🔍 Aclarar Diferencia
+                  </a>
+                  <button type="submit" form="frmCierre" class="btn btn-danger flex-fill">
+                    🔒 Cerrar Turno
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         {% endif %}
 
@@ -34,26 +79,32 @@
 
         {% if pedir_inventario %}
        <!-- SECCIÓN 1: MOVIMIENTOS DEL TURNO -->
+       <div class="seccion-guiada mb-4"> 
         <div class="d-flex justify-content-between align-items-center mb-2">
+          
           <h5 class="mb-0">📦 1. Movimientos del Turno</h5>
           <span class="text-muted small">
             Frecuencia de Inventario Físico: <strong>{{ frecuencia }}</strong> — 
             <a href="{{ url_for('editar_perfil_empresa', empresa_id=g.empresa_id) }}" class="text-danger fw-bold">CAMBIAR</a>
           </span>
         </div>
+       </div> 
         <p class="text-muted small">Anota el conteo físico final de cada producto.</p>
         <div class="table-responsive mb-4">
           <table class="table table-sm table-bordered align-middle">
             <thead class="table-secondary">
               <tr>
-                <th>Producto</th>
-                <th class="text-center">Inv. Inicial</th>
-                <th class="text-center">Entradas</th>
-                <th class="text-center">Mermas</th>
-                <th class="text-center">Consumos</th>
-                <th class="text-center" style="width:130px;">Inventario de Turno Final</th>
-                <th class="text-center">Diferencia</th>
+                <th style="width:18%;">Producto</th>
+                <th class="text-center" style="width:8%;">Inv. Inicial</th>
+                <th class="text-center" style="width:9%;">Entradas</th>
+                <th class="text-center" style="width:8%;">Mermas</th>
+                <th class="text-center" style="width:8%;">Consumos</th>
+                <th class="text-center" style="width:11%;">Inventario de Turno Final</th>
+                <th class="text-center" style="width:9%;">Diferencia</th>
+                <th class="text-center" style="width:9%;">Precio Unit.</th>
+                <th class="text-end" style="width:10%;">Venta Total</th>
               </tr>
+        </div>        
             </thead>
             <tbody>
               {% for p in productos %}
@@ -65,7 +116,7 @@
                     <strong>+{{ "%.2f"|format(p.entradas) }}</strong>
                   {% else %}—{% endif %}
                 </td>
-                <td class="text-center text-danger">
+                <td class="text-center text-danger merma-col">
                   {% if p.mermas > 0 %}
                     {{ "%.2f"|format(p.mermas) }}
                   {% else %}—{% endif %}
@@ -90,9 +141,20 @@
                          placeholder="0.00">
                 </td>
                 <td class="text-center diferencia-col">—</td>
+                <td class="text-center precio-col">${{ "%.2f"|format(p.precio) }}</td>
+                <td class="text-end venta-col text-success fw-bold">$0.00</td>
               </tr>
               {% endfor %}
             </tbody>
+
+                <tfoot class="table-secondary">
+              <tr>
+                <th colspan="7" class="text-end">Total Venta del Turno:</th>
+                <th class="text-center"></th>
+                <th class="text-center text-success fw-bold" id="totalVentaMovimientos">$0.00</th>
+              </tr>
+            </tfoot>
+            
           </table>
         </div>
         <hr>
@@ -243,96 +305,101 @@
 
         <hr>
 
-        <!-- SECCIÓN 5: CONTEO DE DINERO -->
+        <!-- SECCIÓN 4: CONTEO DE DINERO -->
         <h5 class="mb-3">💵 4. Conteo de Dinero en Caja</h5>
-        <p class="text-muted">Cuenta TODO el dinero que hay actualmente.</p>
-        
+        <p class="text-muted small">Cuenta TODO el dinero que hay actualmente en caja.</p>
+
         <div class="row g-3 mb-4">
-          <!-- Billetes -->
-          <div class="col-md-6">
-            <h6>Billetes en Pesos MXN</h6>
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label small">$20</label>
-                <div class="input-group input-group-sm">
-                  <input type="number" name="billetes_20" class="form-control denominacion-cierre" 
-                         min="0" value="0" data-valor="20" id="bill20c">
-                  <span class="input-group-text"><span id="equiv20c">$0</span></span>
-                </div>
+          <!-- Billetes MXN -->
+          <div class="col-md-5">
+            <div class="card h-100">
+              <div class="card-header bg-success text-white fw-bold py-2">
+                <i class="fas fa-money-bill-wave"></i> Billetes MXN
               </div>
-              <div class="col-6">
-                <label class="form-label small">$50</label>
-                <div class="input-group input-group-sm">
-                  <input type="number" name="billetes_50" class="form-control denominacion-cierre" 
-                         min="0" value="0" data-valor="50" id="bill50c">
-                  <span class="input-group-text"><span id="equiv50c">$0</span></span>
-                </div>
-              </div>
-              <div class="col-6">
-                <label class="form-label small">$100</label>
-                <div class="input-group input-group-sm">
-                  <input type="number" name="billetes_100" class="form-control denominacion-cierre" 
-                         min="0" value="0" data-valor="100" id="bill100c">
-                  <span class="input-group-text"><span id="equiv100c">$0</span></span>
-                </div>
-              </div>
-              <div class="col-6">
-                <label class="form-label small">$200</label>
-                <div class="input-group input-group-sm">
-                  <input type="number" name="billetes_200" class="form-control denominacion-cierre" 
-                         min="0" value="0" data-valor="200" id="bill200c">
-                  <span class="input-group-text"><span id="equiv200c">$0</span></span>
-                </div>
-              </div>
-              <div class="col-6">
-                <label class="form-label small">$500</label>
-                <div class="input-group input-group-sm">
-                  <input type="number" name="billetes_500" class="form-control denominacion-cierre" 
-                         min="0" value="0" data-valor="500" id="bill500c">
-                  <span class="input-group-text"><span id="equiv500c">$0</span></span>
+              <div class="card-body">
+                <div class="row g-2">
+                  {% for valor in [20, 50, 100, 200, 500] %}
+                  <div class="col-6">
+                    <label class="form-label small fw-bold">${{ valor }}</label>
+                    <div class="input-group input-group-sm">
+                      <input type="number" name="billetes_{{ valor }}" 
+                             class="form-control denominacion-cierre" 
+                             min="0" value="0" data-valor="{{ valor }}" 
+                             id="bill{{ valor }}c">
+                      <span class="input-group-text text-success fw-bold">
+                        <span id="equiv{{ valor }}c">$0</span>
+                      </span>
+                    </div>
+                  </div>
+                  {% endfor %}
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Dólares y Monedas -->
-          <div class="col-md-6">
-            <h6>Dólares USD</h6>
-            <div class="mb-3">
-              <label class="form-label small">Monto en Dólares</label>
-              <div class="input-group input-group-sm">
-                <span class="input-group-text">$</span>
-                <input type="number" name="dolares" class="form-control" 
-                       step="0.01" min="0" value="0" id="dolaresInputC">
-                <span class="input-group-text">USD</span>
+          <!-- Monedas MXN -->
+          <div class="col-md-4">
+            <div class="card h-100">
+              <div class="card-header bg-warning text-dark fw-bold py-2">
+                <i class="fas fa-coins"></i> Monedas MXN
               </div>
-              <small class="text-muted">TC: ${{ "%.2f"|format(turno.tipo_cambio) }}</small>
-              <div class="mt-1 small">
-                <strong>Equiv:</strong> <span id="dolaresEnPesosC">$0.00</span> MXN
+              <div class="card-body">
+                <div class="row g-2">
+                  {% for valor in [1, 2, 5, 10, 20] %}
+                  <div class="col-6">
+                    <label class="form-label small fw-bold">${{ valor }}</label>
+                    <div class="input-group input-group-sm">
+                      <input type="number" 
+                             class="form-control denominacion-cierre moneda-input" 
+                             min="0" value="0" data-valor="{{ valor }}"
+                             id="moneda{{ valor }}c">
+                      <span class="input-group-text text-warning fw-bold">
+                        <span id="equivMoneda{{ valor }}c">$0</span>
+                      </span>
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+                <div class="mt-2 border-top pt-2 d-flex justify-content-between">
+                  <span class="small fw-bold">Total Monedas:</span>
+                  <span class="fw-bold text-warning" id="totalMonedasDisplay">$0.00</span>
+                </div>
               </div>
             </div>
+          </div>
 
-            <h6>Monedas</h6>
-            <div class="mb-3">
-              <label class="form-label small">Total en Monedas</label>
-              <div class="input-group input-group-sm">
-                <span class="input-group-text">$</span>
-                <input type="number" name="monedas" class="form-control" 
-                       step="0.01" min="0" value="0" id="monedasInput">
+          <!-- Dólares USD -->
+          <div class="col-md-3">
+            <div class="card h-100">
+              <div class="card-header bg-primary text-white fw-bold py-2">
+                <i class="fas fa-dollar-sign"></i> Dólares USD
+              </div>
+              <div class="card-body">
+                <label class="form-label small">Monto en Dólares</label>
+                <div class="input-group input-group-sm mb-2">
+                  <span class="input-group-text">$</span>
+                  <input type="number" name="dolares" class="form-control" 
+                         step="0.01" min="0" value="0" id="dolaresInputC">
+                  <span class="input-group-text">USD</span>
+                </div>
+                <small class="text-muted">TC: ${{ "%.2f"|format(turno.tipo_cambio) }}</small>
+                <div class="mt-1 small">
+                  <strong>Equiv:</strong> <span id="dolaresEnPesosC">$0.00</span> MXN
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Total contado -->
-        <div class="card bg-light mb-4">
-          <div class="card-body">
-            <div class="row">
+        <div class="card border-success mb-4">
+          <div class="card-body py-2">
+            <div class="row align-items-center">
               <div class="col-6">
-                <h5>💰 Total en Caja:</h5>
+                <h5 class="mb-0">💰 Total en Caja:</h5>
               </div>
               <div class="col-6 text-end">
-                <h3 class="text-success" id="totalContado">$0.00</h3>
+                <h3 class="text-success mb-0" id="totalContado">$0.00</h3>
               </div>
             </div>
           </div>
@@ -485,9 +552,32 @@
           </button>
         </div>
 
+        <input type="hidden" name="monedas" id="monedasHidden">
+        
+        <!-- RETIRO DE CORTE -->
+        <div class="card border-warning mb-4">
+          <div class="card-header bg-warning fw-bold py-2">
+            💸 Retiro de Corte Final
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-2">
+              Separa el fondo de <strong>${{ "%.2f"|format(turno.fondo_inicial) }}</strong> 
+              y anota el resto del efectivo que entregas:
+            </p>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" name="retiro_corte" id="retiroCorte"
+                     class="form-control form-control-lg fw-bold"
+                     step="0.01" min="0" value="0" placeholder="0.00">
+            </div>
+          </div>
+        </div>
+      
+      
+      
+      
       </form>
 
-      </form>
 
       <form method="POST" action="{{ url_for('cerrar_turno_guardar_borrador') }}" id="frmBorrador">
         <input type="hidden" name="pedir_inventario" value="{{ 'true' if pedir_inventario else 'false' }}">
@@ -585,7 +675,56 @@
   </div>
 </div>
 
+<!-- Modal Inicio de Corte -->
+<div class="modal fade" id="modalInicioCorte" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-body text-center p-5">
+        <div style="font-size:3rem;">🔒</div>
+        <h4 class="fw-bold mt-3 mb-2">Inicio de Cierre de Turno</h4>
+        <p class="text-muted mb-4">
+          El sistema te guiará paso a paso para completar el corte.<br>
+          Los campos activos se iluminarán en 
+          <span style="color:#667eea; font-weight:700;">azul</span> — 
+          llénalos y presiona <kbd>Enter</kbd> para avanzar.
+        </p>
+        <div class="alert alert-info text-start mb-4">
+          <strong>Pasos a seguir:</strong>
+          <ol class="mb-0 mt-1">
+            <li>Conteo final de productos</li>
+            <li>Mermas del turno</li>
+            <li>Gastos del turno</li>
+            <li>Conteo de dinero en caja</li>
+            <li>Retiro de corte final</li>
+          </ol>
+        </div>
+        <button type="button" class="btn btn-primary btn-lg px-5" id="btnIniciarCorte">
+          ▶ Comenzar — presiona Enter
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<style>
+  /* FLUJO GUIADO */
+  .seccion-guiada { transition: opacity 0.3s ease; }
+  .seccion-bloqueada { opacity: 0.35; pointer-events: none; }
+  .campo-activo {
+    border: 3px solid #667eea !important;
+    box-shadow: 0 0 12px rgba(102,126,234,0.6) !important;
+    background: #f0f4ff !important;
+    transform: scale(1.02);
+    transition: all 0.2s ease;
+  }
+</style>
 <script>
+  
+  function formatMXN(valor) {
+    return '$' + parseFloat(valor).toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+
   const tipoCambio = {{ "%.2f"|format(turno.tipo_cambio) }};
   let totalGastos = {{ total_gastos }};
 
@@ -593,37 +732,45 @@
   // CALCULAR TOTAL EN CAJA
   // =============================================
   function calcularTotalCierre() {
-    const bill20 = parseInt(document.getElementById('bill20c')?.value || '0') || 0;
-    const bill50 = parseInt(document.getElementById('bill50c')?.value || '0') || 0;
-    const bill100 = parseInt(document.getElementById('bill100c')?.value || '0') || 0;
-    const bill200 = parseInt(document.getElementById('bill200c')?.value || '0') || 0;
-    const bill500 = parseInt(document.getElementById('bill500c')?.value || '0') || 0;
+    let totalBilletes = 0;
+    document.querySelectorAll('.denominacion-cierre:not(.moneda-input)').forEach(input => {
+      const val = parseInt(input.value) || 0;
+      const denom = parseInt(input.dataset.valor) || 0;
+      const equiv = val * denom;
+      totalBilletes += equiv;
+      const equivEl = document.getElementById('equiv' + denom + 'c');
+      if (equivEl) equivEl.textContent = '$' + equiv.toLocaleString();
+    });
 
-    const equiv20 = bill20 * 20;
-    const equiv50 = bill50 * 50;
-    const equiv100 = bill100 * 100;
-    const equiv200 = bill200 * 200;
-    const equiv500 = bill500 * 500;
+    let totalMonedas = 0;
+    document.querySelectorAll('.moneda-input').forEach(input => {
+      const val = parseInt(input.value) || 0;
+      const denom = parseFloat(input.dataset.valor) || 0;
+      const equiv = val * denom;
+      totalMonedas += equiv;
+      const equivEl = document.getElementById('equivMoneda' + denom + 'c');
+      if (equivEl) equivEl.textContent = '$' + equiv.toFixed(2);
+    });
 
-    document.getElementById('equiv20c').textContent = '$' + equiv20;
-    document.getElementById('equiv50c').textContent = '$' + equiv50;
-    document.getElementById('equiv100c').textContent = '$' + equiv100;
-    document.getElementById('equiv200c').textContent = '$' + equiv200;
-    document.getElementById('equiv500c').textContent = '$' + equiv500;
-
-    const totalBilletes = equiv20 + equiv50 + equiv100 + equiv200 + equiv500;
+    const elTotalMonedas = document.getElementById('totalMonedasDisplay');
+    if (elTotalMonedas) elTotalMonedas.textContent = '$' + totalMonedas.toFixed(2);
 
     const dolares = parseFloat(document.getElementById('dolaresInputC')?.value || '0') || 0;
-    const dolaresEnPesos = dolares * tipoCambio;
+    const tipoCambioVal = parseFloat('{{ turno.tipo_cambio }}') || 17;
+    const dolaresEnPesos = dolares * tipoCambioVal;
     document.getElementById('dolaresEnPesosC').textContent = '$' + dolaresEnPesos.toFixed(2);
 
-    const monedas = parseFloat(document.getElementById('monedasInput')?.value || '0') || 0;
-
-    const totalContado = totalBilletes + dolaresEnPesos + monedas;
+    const totalContado = totalBilletes + totalMonedas + dolaresEnPesos;
     document.getElementById('totalContado').textContent = '$' + totalContado.toFixed(2);
+
+
+    const monedasHidden = document.getElementById('monedasHidden');
+    if (monedasHidden) monedasHidden.value = totalMonedas.toFixed(2);
+    
+    actualizarResumen();
   }
 
-  document.querySelectorAll('.denominacion-cierre, #dolaresInputC, #monedasInput').forEach(input => {
+  document.querySelectorAll('.denominacion-cierre, #dolaresInputC').forEach(input => {
     input.addEventListener('input', calcularTotalCierre);
   });
 
@@ -654,7 +801,10 @@
         motivo: motivo
       })
     })
-    .then(response => response.json())
+    .then(response => {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    })
     .then(data => {
       if (data.success) {
         // Agregar fila a la tabla
@@ -672,9 +822,15 @@
         `;
         tbody.appendChild(tr);
 
+        // Actualizar columna mermas en tabla de movimientos
+        actualizarMermasEnMovimientos(productoId, parseFloat(cantidad), 'sumar');
+
+
         // Limpiar y cerrar modal
         document.getElementById('formMerma').reset();
-        bootstrap.Modal.getInstance(document.getElementById('modalMerma')).hide();
+        const modalEl = document.getElementById('modalMerma');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) modalInstance.hide();
       } else {
         alert('Error: ' + data.error);
       }
@@ -694,12 +850,40 @@
     .then(data => {
       if (data.success) {
         document.getElementById('merma-' + id)?.remove();
+
+        // Actualizar columna mermas en tabla de movimientos
+        actualizarMermasEnMovimientos(id, monto, 'restar');
         // Si no quedan filas, mostrar mensaje
         if (document.querySelectorAll('#listaMermas tr').length === 0) {
           document.getElementById('listaMermas').innerHTML = 
             '<tr id="sinMermas"><td colspan="4" class="text-center text-muted">Sin mermas registradas</td></tr>';
         }
       }
+    });
+  }
+
+  function actualizarMermasEnMovimientos(productoId, cantidad, operacion) {
+    // Buscar la fila del producto en la tabla de movimientos
+    document.querySelectorAll('.cant-final').forEach(input => {
+      const tr = input.closest('tr');
+      const hiddenId = tr.querySelector('input[name="producto_id[]"]');
+      if (!hiddenId || hiddenId.value != productoId) return;
+
+      // Actualizar data-mermas
+      const mermasActuales = parseFloat(input.dataset.mermas) || 0;
+      const nuevasMermas = operacion === 'sumar' 
+        ? mermasActuales + cantidad 
+        : mermasActuales - cantidad;
+      input.dataset.mermas = nuevasMermas;
+
+      // Actualizar celda de mermas visualmente
+      const celdaMermas = tr.querySelector('.merma-col');
+      if (celdaMermas) {
+        celdaMermas.textContent = nuevasMermas > 0 ? nuevasMermas.toFixed(2) : '—';
+      }
+
+      // Recalcular diferencia
+      input.dispatchEvent(new Event('input'));
     });
   }
 
@@ -801,16 +985,58 @@
       const consumos = parseFloat(input.dataset.consumos) || 0;
       const final = parseFloat(input.value) || 0;
       const esperado = inicial + entradas - mermas - consumos;
-      const dif = final - esperado;
+      const vendidas = esperado - final;
       const td = input.closest('tr').querySelector('.diferencia-col');
       if (td) {
-        td.textContent = dif.toFixed(2);
-        td.className = 'text-center diferencia-col fw-bold ' + (dif < 0 ? 'text-danger' : dif > 0 ? 'text-warning' : 'text-success');
+        td.textContent = vendidas.toFixed(2);
+        td.className = 'text-center diferencia-col fw-bold ' + (vendidas > 0 ? 'text-success' : vendidas < 0 ? 'text-danger' : 'text-muted');
       }
+      const precioCel = input.closest('tr').querySelector('.precio-col');
+      const ventaCel = input.closest('tr').querySelector('.venta-col');
+      if (precioCel && ventaCel) {
+        const precio = parseFloat(precioCel.textContent.replace('$','').replace(',','')) || 0;
+        const venta = vendidas * precio;
+        ventaCel.textContent = formatMXN(venta);
+        ventaCel.className = 'text-end venta-col fw-bold ' + (venta >= 0 ? 'text-success' : 'text-danger');
+      }
+      let totalVenta = 0;
+      document.querySelectorAll('.venta-col').forEach(cel => {
+        totalVenta += parseFloat(cel.textContent.replace('$','').replace(/,/g,'')) || 0;
+      });
+      const totalEl = document.getElementById('totalVentaMovimientos');
+      if (totalEl) totalEl.textContent = formatMXN(totalVenta);
     }
     input.addEventListener('input', calcDif);
     calcDif();
+
   });
+
+  // Auto-guardar inventario final al cambiar cantidades
+  document.querySelectorAll('.cant-final').forEach(input => {
+    input.addEventListener('change', function() {
+      const frmBorrador = document.getElementById('frmBorrador');
+      if (!frmBorrador) return;
+      
+      // Sincronizar cantidades al form borrador
+      const cantidades = document.querySelectorAll('input[name="cantidad_final[]"]');
+      const borradores = document.querySelectorAll('.cant-borrador');
+      cantidades.forEach((inp, i) => {
+        if (borradores[i]) borradores[i].value = inp.value;
+      });
+
+      // Enviar borrador via fetch silencioso
+      const formData = new FormData(frmBorrador);
+      fetch('{{ url_for("cerrar_turno_guardar_borrador") }}', {
+        method: 'POST',
+        body: formData
+      }).then(resp => {
+        if (resp.ok) {
+          console.log('✅ Avance guardado automáticamente');
+        }
+      }).catch(err => console.error('Error auto-guardado:', err));
+    });
+  });
+
 
     function actualizarResumen() {
       const totalContado = parseFloat(document.getElementById('totalContado').textContent.replace('$','')) || 0;
@@ -827,6 +1053,80 @@
       input.addEventListener('input', actualizarResumen);
     });
     actualizarResumen();                      
+
+    // =============================================
+  // FLUJO GUIADO
+  // =============================================
+  let camposGuiados = [];
+  let indiceCampoActual = 0;
+
+  function iniciarFlujoGuiado() {
+    // Bloquear todas las secciones
+    document.querySelectorAll('.seccion-guiada').forEach(s => {
+      s.classList.add('seccion-bloqueada');
+    });
+
+    // Construir lista de campos en orden
+    camposGuiados = Array.from(document.querySelectorAll('.cant-final, .denominacion-cierre, .moneda-input, #dolaresInputC, #retiroCorte'));
+    
+    // Activar primera sección
+    const primera = document.querySelector('.seccion-guiada');
+    if (primera) primera.classList.remove('seccion-bloqueada');
+
+    activarCampo(0);
+  }
+
+  function activarCampo(idx) {
+    // Quitar resaltado anterior
+    camposGuiados.forEach(c => c.classList.remove('campo-activo'));
+
+    if (idx >= camposGuiados.length) {
+      // Todos llenos — habilitar botón cerrar
+      document.querySelector('.btn-danger.flex-fill')?.removeAttribute('disabled');
+      return;
+    }
+
+    const campo = camposGuiados[idx];
+    campo.classList.add('campo-activo');
+    campo.focus();
+    campo.select();
+
+    // Verificar si hay que desbloquear nueva sección
+    const seccion = campo.closest('.seccion-guiada');
+    if (seccion) seccion.classList.remove('seccion-bloqueada');
+
+    indiceCampoActual = idx;
+  }
+
+  // Avanzar con Enter o Tab
+  document.addEventListener('keydown', function(e) {
+    if ((e.key === 'Enter' || e.key === 'Tab') && camposGuiados.length > 0) {
+      const campoActivo = camposGuiados[indiceCampoActual];
+      if (document.activeElement === campoActivo) {
+        e.preventDefault();
+        activarCampo(indiceCampoActual + 1);
+      }
+    }
+  });
+
+  // Mostrar modal al cargar
+  window.addEventListener('load', function() {
+    const modal = new bootstrap.Modal(document.getElementById('modalInicioCorte'));
+    modal.show();
+
+    // Iniciar con Enter desde el modal
+    document.getElementById('btnIniciarCorte').addEventListener('click', function() {
+      modal.hide();
+      setTimeout(iniciarFlujoGuiado, 300);
+    });
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && document.getElementById('modalInicioCorte').classList.contains('show')) {
+        document.getElementById('btnIniciarCorte').click();
+      }
+    }, { once: true });
+  });
+
 
 </script>
 
