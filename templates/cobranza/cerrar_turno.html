@@ -70,99 +70,99 @@
             </div>
           </div>
         </div>
-        {% endif %}
+          {% endif %}
 
-        <hr>
+          <hr>
 
-        <!-- Campo oculto para que el POST sepa si hay inventario -->
-        <input type="hidden" name="pedir_inventario" value="{{ 'true' if pedir_inventario else 'false' }}">
+          <!-- Campo oculto para que el POST sepa si hay inventario -->
+          <input type="hidden" name="pedir_inventario" value="{{ 'true' if pedir_inventario else 'false' }}">
 
-        {% if pedir_inventario %}
-       <!-- SECCIÓN 1: MOVIMIENTOS DEL TURNO -->
-       <div class="seccion-guiada mb-4"> 
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          
-          <h5 class="mb-0">📦 1. Movimientos del Turno</h5>
-          <span class="text-muted small">
-            Frecuencia de Inventario Físico: <strong>{{ frecuencia }}</strong> — 
-            <a href="{{ url_for('editar_perfil_empresa', empresa_id=g.empresa_id) }}" class="text-danger fw-bold">CAMBIAR</a>
-          </span>
-        </div>
-       </div> 
-        <p class="text-muted small">Anota el conteo físico final de cada producto.</p>
-        <div class="table-responsive mb-4">
-          <table class="table table-sm table-bordered align-middle">
-            <thead class="table-secondary">
-              <tr>
-                <th style="width:18%;">Producto</th>
-                <th class="text-center" style="width:8%;">Inv. Inicial</th>
-                <th class="text-center" style="width:9%;">Entradas</th>
-                <th class="text-center" style="width:8%;">Mermas</th>
-                <th class="text-center" style="width:8%;">Consumos</th>
-                <th class="text-center" style="width:11%;">Inventario de Turno Final</th>
-                <th class="text-center" style="width:9%;">Diferencia</th>
-                <th class="text-center" style="width:9%;">Precio Unit.</th>
-                <th class="text-end" style="width:10%;">Venta Total</th>
-              </tr>
-        </div>        
-            </thead>
-            <tbody>
-              {% for p in productos %}
-              <tr>
-                <td><strong>{{ p.nombre }}</strong></td>
-                <td class="text-center">{{ "%.2f"|format(p.cantidad_inicial) }}</td>
-                <td class="text-center text-success">
-                  {% if p.entradas > 0 %}
-                    <strong>+{{ "%.2f"|format(p.entradas) }}</strong>
-                  {% else %}—{% endif %}
-                </td>
-                <td class="text-center text-danger merma-col">
-                  {% if p.mermas > 0 %}
-                    {{ "%.2f"|format(p.mermas) }}
-                  {% else %}—{% endif %}
-                </td>
-                <td class="text-center text-warning">
-                  {% if p.consumos > 0 %}
-                    {{ "%.2f"|format(p.consumos) }}
-                  {% else %}—{% endif %}
-                </td>
-                <td class="text-center">
-                  <input type="hidden" name="producto_id[]" value="{{ p.id }}">
-                  <input type="hidden" name="producto_nombre[]" value="{{ p.nombre }}">
-                  <input type="hidden" name="producto_precio[]" value="{{ p.precio }}">
-                  <input type="number" name="cantidad_final[]"
-                         class="form-control form-control-sm text-center cant-final"
-                         step="0.01" min="0"
-                         value="{{ p.cantidad_guardada }}"
-                         data-inicial="{{ p.cantidad_inicial }}"
-                         data-entradas="{{ p.entradas }}"
-                         data-mermas="{{ p.mermas }}"
-                         data-consumos="{{ p.consumos }}"
-                         placeholder="0.00">
-                </td>
-                <td class="text-center diferencia-col">—</td>
-                <td class="text-center precio-col">${{ "%.2f"|format(p.precio) }}</td>
-                <td class="text-end venta-col text-success fw-bold">$0.00</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-
-                <tfoot class="table-secondary">
-              <tr>
-                <th colspan="7" class="text-end">Total Venta del Turno:</th>
-                <th class="text-center"></th>
-                <th class="text-center text-success fw-bold" id="totalVentaMovimientos">$0.00</th>
-              </tr>
-            </tfoot>
+          {% if pedir_inventario %}
+        <!-- SECCIÓN 1: MOVIMIENTOS DEL TURNO -->
+        <div class="seccion-guiada mb-4"> 
+          <div class="d-flex justify-content-between align-items-center mb-2">
             
-          </table>
-        </div>
-        <hr>
-      
+            <div class="titulo-seccion">📦 1. Movimientos del Turno</div>
+            <span class="text-muted small">
+              Frecuencia de Inventario Físico: <strong>{{ frecuencia }}</strong> — 
+              <a href="{{ url_for('editar_perfil_empresa', empresa_id=g.empresa_id) }}" class="text-danger fw-bold">CAMBIAR</a>
+            </span>
+          </div>
+        </div> 
+          <p class="text-muted small">Anota el conteo físico final de cada producto.</p>
+          <div class="table-responsive mb-4">
+            <table class="table table-sm table-bordered align-middle">
+              <thead class="table-secondary">
+                <tr>
+                  <th style="width:18%;">Producto</th>
+                  <th class="text-center" style="width:8%;">Inv. Inicial</th>
+                  <th class="text-center" style="width:9%;">Entradas</th>
+                  <th class="text-center" style="width:8%;">Mermas</th>
+                  <th class="text-center" style="width:8%;">Consumos</th>
+                  <th class="text-center" style="width:11%;">Inventario de Turno Final</th>
+                  <th class="text-center" style="width:9%;">Diferencia</th>
+                  <th class="text-center" style="width:9%;">Precio Unit.</th>
+                  <th class="text-end" style="width:10%;">Venta Total</th>
+                </tr>
+          </div>        
+              </thead>
+              <tbody>
+                {% for p in productos %}
+                <tr>
+                  <td><strong>{{ p.nombre }}</strong></td>
+                  <td class="text-center">{{ "%.2f"|format(p.cantidad_inicial) }}</td>
+                  <td class="text-center text-success">
+                    {% if p.entradas > 0 %}
+                      <strong>+{{ "%.2f"|format(p.entradas) }}</strong>
+                    {% else %}—{% endif %}
+                  </td>
+                  <td class="text-center text-danger merma-col">
+                    {% if p.mermas > 0 %}
+                      {{ "%.2f"|format(p.mermas) }}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td class="text-center text-warning">
+                    {% if p.consumos > 0 %}
+                      {{ "%.2f"|format(p.consumos) }}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td class="text-center">
+                    <input type="hidden" name="producto_id[]" value="{{ p.id }}">
+                    <input type="hidden" name="producto_nombre[]" value="{{ p.nombre }}">
+                    <input type="hidden" name="producto_precio[]" value="{{ p.precio }}">
+                    <input type="number" name="cantidad_final[]"
+                          class="form-control form-control-sm text-center cant-final"
+                          step="0.01" min="0"
+                          value="{{ p.cantidad_guardada }}"
+                          data-inicial="{{ p.cantidad_inicial }}"
+                          data-entradas="{{ p.entradas }}"
+                          data-mermas="{{ p.mermas }}"
+                          data-consumos="{{ p.consumos }}"
+                          placeholder="0.00">
+                  </td>
+                  <td class="text-center diferencia-col">—</td>
+                  <td class="text-center precio-col">${{ "%.2f"|format(p.precio) }}</td>
+                  <td class="text-end venta-col text-success fw-bold">$0.00</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+
+                  <tfoot class="table-secondary">
+                <tr>
+                  <th colspan="7" class="text-end">Total Venta del Turno:</th>
+                  <th class="text-center"></th>
+                  <th class="text-center text-success fw-bold" id="totalVentaMovimientos">$0.00</th>
+                </tr>
+              </tfoot>
+              
+            </table>
+          </div>
+          <hr>
+        
         {% else %}
         <!-- SIN INVENTARIO FÍSICO - SOLO LECTURA -->
         <div class="d-flex justify-content-between align-items-center mb-2">
-          <h5 class="mb-0">📦 1. Movimientos del Turno</h5>
+          <div class="titulo-seccion">📦 1. Movimientos del Turno</div>
           <span class="text-muted small">
             Frec: <strong>{{ frecuencia }}</strong> — 
             <a href="{{ url_for('editar_perfil_empresa', empresa_id=g.empresa_id) }}" class="text-danger fw-bold">CAMBIAR</a>
@@ -207,11 +207,30 @@
         <hr>
         {% endif %}
         
+        <!-- RETIRO DE CORTE -->
+        <div class="seccion-guiada card border-warning mb-4">
+          <div class="card-header bg-warning fw-bold py-2">
+            💸 Retiro de Corte Final
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-2">
+              Separa el fondo de <strong>${{ "%.2f"|format(turno.fondo_inicial) }}</strong> 
+              y anota el resto del efectivo que entregas:
+            </p>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" name="retiro_corte" id="retiroCorte"
+                     class="form-control form-control-lg fw-bold"
+                     step="0.01" min="0" value="0" placeholder="0.00">
+            </div>
+          </div>
+        </div>
 
         <hr>
 
-        <!-- SECCIÓN 2: MERMAS -->
-        <h5 class="mb-3">❌ 2. Mermas</h5>
+      <!-- SECCIÓN 2: MERMAS -->
+      <div class="seccion-guiada" id="seccionMermas">
+        <div class="titulo-seccion">❌ 2. Mermas</div>
         
         <button type="button" class="btn btn-outline-danger btn-sm mb-3" 
                 data-bs-toggle="modal" data-bs-target="#modalMerma">
@@ -248,18 +267,19 @@
           </table>
         </div>
 
-      
-        <hr>
-
-       
-        <!-- SECCIÓN 4: GASTOS Y COMPRAS -->
-        <h5 class="mb-3">🛒 3. Compras y Gastos del Turno</h5>
+        <button type="button" class="btn btn-success btn-sm mb-3" onclick="iniciarFaseGastos()">
+          ✅ Continuar a Gastos →
+        </button>
+      </div>
+      <hr>
+      <!-- SECCIÓN 3: GASTOS Y COMPRAS -->
+      <div class="seccion-guiada" id="seccionGastos">
+        <div class="titulo-seccion">🛒 3. Compras y Gastos del Turno</div>
         
         <button type="button" class="btn btn-outline-primary btn-sm mb-3" 
                 data-bs-toggle="modal" data-bs-target="#modalGasto">
           ➕ Agregar Gasto/Compra
         </button>
-
         <div class="table-responsive mb-4">
           <table class="table table-sm" id="tablaGastos">
             <thead>
@@ -302,117 +322,114 @@
             </tfoot>
           </table>
         </div>
-
-        <hr>
-
-        <!-- SECCIÓN 4: CONTEO DE DINERO -->
-        <h5 class="mb-3">💵 4. Conteo de Dinero en Caja</h5>
-        <p class="text-muted small">Cuenta TODO el dinero que hay actualmente en caja.</p>
-
-        <div class="row g-3 mb-4">
-          <!-- Billetes MXN -->
-          <div class="col-md-5">
-            <div class="card h-100">
-              <div class="card-header bg-success text-white fw-bold py-2">
-                <i class="fas fa-money-bill-wave"></i> Billetes MXN
-              </div>
-              <div class="card-body">
-                <div class="row g-2">
-                  {% for valor in [20, 50, 100, 200, 500] %}
-                  <div class="col-6">
-                    <label class="form-label small fw-bold">${{ valor }}</label>
-                    <div class="input-group input-group-sm">
-                      <input type="number" name="billetes_{{ valor }}" 
-                             class="form-control denominacion-cierre" 
-                             min="0" value="0" data-valor="{{ valor }}" 
-                             id="bill{{ valor }}c">
-                      <span class="input-group-text text-success fw-bold">
-                        <span id="equiv{{ valor }}c">$0</span>
-                      </span>
-                    </div>
-                  </div>
-                  {% endfor %}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Monedas MXN -->
-          <div class="col-md-4">
-            <div class="card h-100">
-              <div class="card-header bg-warning text-dark fw-bold py-2">
-                <i class="fas fa-coins"></i> Monedas MXN
-              </div>
-              <div class="card-body">
-                <div class="row g-2">
-                  {% for valor in [1, 2, 5, 10, 20] %}
-                  <div class="col-6">
-                    <label class="form-label small fw-bold">${{ valor }}</label>
-                    <div class="input-group input-group-sm">
-                      <input type="number" 
-                             class="form-control denominacion-cierre moneda-input" 
-                             min="0" value="0" data-valor="{{ valor }}"
-                             id="moneda{{ valor }}c">
-                      <span class="input-group-text text-warning fw-bold">
-                        <span id="equivMoneda{{ valor }}c">$0</span>
-                      </span>
-                    </div>
-                  </div>
-                  {% endfor %}
-                </div>
-                <div class="mt-2 border-top pt-2 d-flex justify-content-between">
-                  <span class="small fw-bold">Total Monedas:</span>
-                  <span class="fw-bold text-warning" id="totalMonedasDisplay">$0.00</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Dólares USD -->
-          <div class="col-md-3">
-            <div class="card h-100">
-              <div class="card-header bg-primary text-white fw-bold py-2">
-                <i class="fas fa-dollar-sign"></i> Dólares USD
-              </div>
-              <div class="card-body">
-                <label class="form-label small">Monto en Dólares</label>
-                <div class="input-group input-group-sm mb-2">
-                  <span class="input-group-text">$</span>
-                  <input type="number" name="dolares" class="form-control" 
-                         step="0.01" min="0" value="0" id="dolaresInputC">
-                  <span class="input-group-text">USD</span>
-                </div>
-                <small class="text-muted">TC: ${{ "%.2f"|format(turno.tipo_cambio) }}</small>
-                <div class="mt-1 small">
-                  <strong>Equiv:</strong> <span id="dolaresEnPesosC">$0.00</span> MXN
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Total contado -->
-        <div class="card border-success mb-4">
-          <div class="card-body py-2">
-            <div class="row align-items-center">
-              <div class="col-6">
-                <h5 class="mb-0">💰 Total en Caja:</h5>
-              </div>
-              <div class="col-6 text-end">
-                <h3 class="text-success mb-0" id="totalContado">$0.00</h3>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <hr>
+        <button type="button" class="btn btn-success btn-sm mb-3" onclick="iniciarFaseDinero()">
+          ✅ Continuar a Conteo de Dinero →
+        </button>
+      </div>
+      <hr>
         
-
-
+        <!-- SECCIÓN 4: CONTEO DE DINERO -->
+        <div class="seccion-guiada" id="seccionDinero">
+          <div class="titulo-seccion">💵 4. Conteo de Dinero en Caja</div>
+          <p class="text-muted small">Cuenta TODO el dinero que hay actualmente en caja.</p>
+          <div class="row g-3 mb-4">
+            <!-- Billetes MXN -->
+            <div class="col-md-5">
+              <div class="card h-100">
+                <div class="card-header bg-success text-white fw-bold py-2">
+                  <i class="fas fa-money-bill-wave"></i> Billetes MXN
+                </div>
+                <div class="card-body">
+                  <div class="row g-2">
+                    {% for valor in [20, 50, 100, 200, 500] %}
+                    <div class="col-6">
+                      <label class="form-label small fw-bold">${{ valor }}</label>
+                      <div class="input-group input-group-sm">
+                        <input type="number" name="billetes_{{ valor }}" 
+                               class="form-control denominacion-cierre" 
+                               min="0" value="0" data-valor="{{ valor }}" 
+                               id="bill{{ valor }}c">
+                        <span class="input-group-text text-success fw-bold">
+                          <span id="equiv{{ valor }}c">$0</span>
+                        </span>
+                      </div>
+                    </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Monedas MXN -->
+            <div class="col-md-4">
+              <div class="card h-100">
+                <div class="card-header bg-warning text-dark fw-bold py-2">
+                  <i class="fas fa-coins"></i> Monedas MXN
+                </div>
+                <div class="card-body">
+                  <div class="row g-2">
+                    {% for valor in [1, 2, 5, 10, 20] %}
+                    <div class="col-6">
+                      <label class="form-label small fw-bold">${{ valor }}</label>
+                      <div class="input-group input-group-sm">
+                        <input type="number" 
+                               class="form-control denominacion-cierre moneda-input" 
+                               min="0" value="0" data-valor="{{ valor }}"
+                               id="moneda{{ valor }}c">
+                        <span class="input-group-text text-warning fw-bold">
+                          <span id="equivMoneda{{ valor }}c">$0</span>
+                        </span>
+                      </div>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  <div class="mt-2 border-top pt-2 d-flex justify-content-between">
+                    <span class="small fw-bold">Total Monedas:</span>
+                    <span class="fw-bold text-warning" id="totalMonedasDisplay">$0.00</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Dólares USD -->
+            <div class="col-md-3">
+              <div class="card h-100">
+                <div class="card-header bg-primary text-white fw-bold py-2">
+                  <i class="fas fa-dollar-sign"></i> Dólares USD
+                </div>
+                <div class="card-body">
+                  <label class="form-label small">Monto en Dólares</label>
+                  <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text">$</span>
+                    <input type="number" name="dolares" class="form-control" 
+                           step="0.01" min="0" value="0" id="dolaresInputC">
+                    <span class="input-group-text">USD</span>
+                  </div>
+                  <small class="text-muted">TC: ${{ "%.2f"|format(turno.tipo_cambio) }}</small>
+                  <div class="mt-1 small">
+                    <strong>Equiv:</strong> <span id="dolaresEnPesosC">$0.00</span> MXN
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Total contado -->
+          <div class="card border-success mb-4">
+            <div class="card-body py-2">
+              <div class="row align-items-center">
+                <div class="col-6">
+                  <div class="titulo-seccion">💰 Total en Caja:</div>
+                </div>
+                <div class="col-6 text-end">
+                  <h3 class="text-success mb-0" id="totalContado">$0.00</h3>
+                </div>
+              </div>
+            </div>
+          </div>
+          <input type="hidden" name="monedas" id="monedasHidden">
+        </div>
         <hr>
 
         <!-- SECCIÓN 5: TICKETS DE VENTA -->
-        <h5 class="mb-3">🧾 5. Tickets de Venta del Turno</h5>
+        <div class="titulo-seccion">🧾 5. Tickets de Venta del Turno</div>
         <div class="table-responsive mb-3">
           <table class="table table-sm table-bordered">
             <thead class="table-secondary">
@@ -478,7 +495,7 @@
         <hr>
 
         <!-- SECCIÓN 6: RESUMEN DE CORTE -->
-        <h5 class="mb-3">📊 6. Resumen de Corte de Caja</h5>
+        <div class="titulo-seccion">📊 6. Resumen de Corte de Caja</div>
         <div class="row g-3 mb-4">
           <div class="col-md-6">
             <div class="card border-success">
@@ -554,24 +571,7 @@
 
         <input type="hidden" name="monedas" id="monedasHidden">
         
-        <!-- RETIRO DE CORTE -->
-        <div class="card border-warning mb-4">
-          <div class="card-header bg-warning fw-bold py-2">
-            💸 Retiro de Corte Final
-          </div>
-          <div class="card-body">
-            <p class="text-muted small mb-2">
-              Separa el fondo de <strong>${{ "%.2f"|format(turno.fondo_inicial) }}</strong> 
-              y anota el resto del efectivo que entregas:
-            </p>
-            <div class="input-group">
-              <span class="input-group-text">$</span>
-              <input type="number" name="retiro_corte" id="retiroCorte"
-                     class="form-control form-control-lg fw-bold"
-                     step="0.01" min="0" value="0" placeholder="0.00">
-            </div>
-          </div>
-        </div>
+        
       
       
       
@@ -630,6 +630,33 @@
     </div>
   </div>
 </div>
+
+<!-- Modal Opciones Merma -->
+<div class="modal fade" id="modalOpcionesMerma" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title">✅ Merma registrada</h5>
+      </div>
+      <div class="modal-body text-center py-4">
+        <p class="mb-4">¿Deseas registrar otra merma o continuar a Gastos?</p>
+        <div class="d-flex gap-3 justify-content-center">
+          <button type="button" class="btn btn-outline-danger btn-lg"
+                  onclick="bootstrap.Modal.getInstance(document.getElementById('modalOpcionesMerma')).hide(); 
+                           setTimeout(() => new bootstrap.Modal(document.getElementById('modalMerma')).show(), 300);">
+            ➕ Otra Merma
+          </button>
+          <button type="button" class="btn btn-success btn-lg"
+                  onclick="bootstrap.Modal.getInstance(document.getElementById('modalOpcionesMerma')).hide();
+                           setTimeout(iniciarFaseGastos, 300);">
+            ✅ Continuar a Gastos →
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <!-- Modal Agregar Gasto (AJAX) -->
 <div class="modal fade" id="modalGasto" tabindex="-1">
@@ -708,6 +735,22 @@
 
 
 <style>
+
+  /* TÍTULOS DE SECCIÓN DEL CORTE */
+  .titulo-seccion {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #2c3e50;
+    padding: 10px 15px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-left: 5px solid #667eea;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-size: 0.95rem;
+  }
+
   /* FLUJO GUIADO */
   .seccion-guiada { transition: opacity 0.3s ease; }
   .seccion-bloqueada { opacity: 0.35; pointer-events: none; }
@@ -826,11 +869,18 @@
         actualizarMermasEnMovimientos(productoId, parseFloat(cantidad), 'sumar');
 
 
-        // Limpiar y cerrar modal
+        // Limpiar modal
         document.getElementById('formMerma').reset();
         const modalEl = document.getElementById('modalMerma');
         const modalInstance = bootstrap.Modal.getInstance(modalEl);
         if (modalInstance) modalInstance.hide();
+
+        // Mostrar opciones
+        setTimeout(() => {
+          const modalOpciones = new bootstrap.Modal(document.getElementById('modalOpcionesMerma'));
+          modalOpciones.show();
+        }, 300);
+
       } else {
         alert('Error: ' + data.error);
       }
@@ -1054,80 +1104,138 @@
     });
     actualizarResumen();                      
 
-    // =============================================
-  // FLUJO GUIADO
   // =============================================
-  let camposGuiados = [];
-  let indiceCampoActual = 0;
+  // FLUJO GUIADO POR FASES
+  // =============================================
+  let fase = 0;
+  let camposInventario = [];
+  let indiceCampo = 0;
+
+  const fases = ['inventario', 'retiro', 'mermas', 'gastos', 'dinero'];
 
   function iniciarFlujoGuiado() {
     // Bloquear todas las secciones
-    document.querySelectorAll('.seccion-guiada').forEach(s => {
-      s.classList.add('seccion-bloqueada');
-    });
+    document.querySelectorAll('.seccion-guiada').forEach(s => s.classList.add('seccion-bloqueada'));
 
-    // Construir lista de campos en orden
-    camposGuiados = Array.from(document.querySelectorAll('.cant-final, .denominacion-cierre, .moneda-input, #dolaresInputC, #retiroCorte'));
-    
-    // Activar primera sección
-    const primera = document.querySelector('.seccion-guiada');
-    if (primera) primera.classList.remove('seccion-bloqueada');
-
-    activarCampo(0);
+    // Iniciar fase 1: inventario
+    iniciarFaseInventario();
   }
 
-  function activarCampo(idx) {
-    // Quitar resaltado anterior
-    camposGuiados.forEach(c => c.classList.remove('campo-activo'));
+  // FASE 1: INVENTARIO
+  function iniciarFaseInventario() {
+    fase = 0;
+    camposInventario = Array.from(document.querySelectorAll('.cant-final'));
+    indiceCampo = 0;
 
-    if (idx >= camposGuiados.length) {
-      // Todos llenos — habilitar botón cerrar
-      document.querySelector('.btn-danger.flex-fill')?.removeAttribute('disabled');
+    const secInv = document.querySelector('.seccion-guiada');
+    if (secInv) secInv.classList.remove('seccion-bloqueada');
+
+    activarCampoInventario(0);
+  }
+
+  function activarCampoInventario(idx) {
+    camposInventario.forEach(c => c.classList.remove('campo-activo'));
+
+    if (idx >= camposInventario.length) {
+      // Inventario completo → pasar a retiro
+      iniciarFaseRetiro();
       return;
     }
 
-    const campo = camposGuiados[idx];
+    const campo = camposInventario[idx];
     campo.classList.add('campo-activo');
     campo.focus();
     campo.select();
-
-    // Verificar si hay que desbloquear nueva sección
-    const seccion = campo.closest('.seccion-guiada');
-    if (seccion) seccion.classList.remove('seccion-bloqueada');
-
-    indiceCampoActual = idx;
+    indiceCampo = idx;
   }
 
-  // Avanzar con Enter o Tab
+  // FASE 2: RETIRO DE CORTE
+  function iniciarFaseRetiro() {
+    fase = 1;
+    const secRetiro = document.getElementById('retiroCorte')?.closest('.seccion-guiada');
+    if (secRetiro) secRetiro.classList.remove('seccion-bloqueada');
+
+    const campo = document.getElementById('retiroCorte');
+    if (campo) {
+      campo.classList.add('campo-activo');
+      campo.focus();
+      campo.select();
+    }
+  }
+
+  // FASE 3: MERMAS
+  function iniciarFaseMermas() {
+    fase = 2;
+    const secMermas = document.getElementById('seccionMermas');
+    if (secMermas) secMermas.classList.remove('seccion-bloqueada');
+
+    const btnMerma = document.querySelector('[data-bs-target="#modalMerma"]');
+    if (btnMerma) {
+      btnMerma.classList.add('campo-activo');
+      btnMerma.focus();
+    }
+  }
+
+  // FASE 4: GASTOS
+  function iniciarFaseGastos() {
+    fase = 3;
+    const secGastos = document.getElementById('seccionGastos');
+    if (secGastos) secGastos.classList.remove('seccion-bloqueada');
+
+    const btnGasto = document.querySelector('[data-bs-target="#modalGasto"]');
+    if (btnGasto) {
+      btnGasto.classList.add('campo-activo');
+      btnGasto.focus();
+    }
+  }
+
+  // FASE 5: CONTEO DE DINERO
+  function iniciarFaseDinero() {
+    fase = 4;
+    const secDinero = document.getElementById('seccionDinero');
+    if (secDinero) secDinero.classList.remove('seccion-bloqueada');
+
+    const campos = Array.from(document.querySelectorAll('.denominacion-cierre, .moneda-input, #dolaresInputC'));
+    if (campos.length > 0) {
+      campos[0].classList.add('campo-activo');
+      campos[0].focus();
+    }
+  }
+
+  // ENTER/TAB handler
   document.addEventListener('keydown', function(e) {
-    if ((e.key === 'Enter' || e.key === 'Tab') && camposGuiados.length > 0) {
-      const campoActivo = camposGuiados[indiceCampoActual];
-      if (document.activeElement === campoActivo) {
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+
+    if (fase === 0) {
+      // Inventario
+      if (document.activeElement === camposInventario[indiceCampo]) {
         e.preventDefault();
-        activarCampo(indiceCampoActual + 1);
+        camposInventario[indiceCampo].classList.remove('campo-activo');
+        activarCampoInventario(indiceCampo + 1);
+      }
+    } else if (fase === 1) {
+      // Retiro de corte
+      const retiro = document.getElementById('retiroCorte');
+      if (document.activeElement === retiro) {
+        e.preventDefault();
+        retiro.classList.remove('campo-activo');
+        iniciarFaseMermas();
       }
     }
   });
-
-  // Mostrar modal al cargar
+// Mostrar modal al cargar
   window.addEventListener('load', function() {
     const modal = new bootstrap.Modal(document.getElementById('modalInicioCorte'));
     modal.show();
-
-    // Iniciar con Enter desde el modal
     document.getElementById('btnIniciarCorte').addEventListener('click', function() {
       modal.hide();
       setTimeout(iniciarFlujoGuiado, 300);
     });
-
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && document.getElementById('modalInicioCorte').classList.contains('show')) {
         document.getElementById('btnIniciarCorte').click();
       }
     }, { once: true });
   });
-
-
 </script>
-
 {% endblock %}

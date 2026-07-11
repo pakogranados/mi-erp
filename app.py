@@ -6757,8 +6757,41 @@ def cerrar_turno_guardar_borrador():
                     fecha = NOW()
             """, (eid, turno_id, int(pid), pnombre, float(cant)))
 
+        # Guardar arqueo de dinero
+        billetes_20 = int(request.form.get('billetes_20', 0) or 0)
+        billetes_50 = int(request.form.get('billetes_50', 0) or 0)
+        billetes_100 = int(request.form.get('billetes_100', 0) or 0)
+        billetes_200 = int(request.form.get('billetes_200', 0) or 0)
+        billetes_500 = int(request.form.get('billetes_500', 0) or 0)
+        dolares = float(request.form.get('dolares', 0) or 0)
+        monedas = float(request.form.get('monedas', 0) or 0)
+        retiro_corte = float(request.form.get('retiro_corte', 0) or 0)
+
+        tipo_cambio = 17.0
+        total_billetes = (billetes_20*20 + billetes_50*50 + billetes_100*100 + 
+                         billetes_200*200 + billetes_500*500)
+        total_efectivo = total_billetes + (dolares * tipo_cambio) + monedas
+
+        cur.execute("""
+            INSERT INTO turno_arqueo 
+                (empresa_id, turno_id, billetes_20, billetes_50, billetes_100, billetes_200,
+                 billetes_500, dolares, monedas, total_efectivo)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                billetes_20 = VALUES(billetes_20),
+                billetes_50 = VALUES(billetes_50),
+                billetes_100 = VALUES(billetes_100),
+                billetes_200 = VALUES(billetes_200),
+                billetes_500 = VALUES(billetes_500),
+                dolares = VALUES(dolares),
+                monedas = VALUES(monedas),
+                total_efectivo = VALUES(total_efectivo)
+        """, (eid, turno_id, billetes_20, billetes_50, billetes_100, billetes_200,
+              billetes_500, dolares, monedas, total_efectivo))
+
         db.commit()
         flash('✅ Avance guardado correctamente.', 'success')
+        
     except Exception as e:
         db.rollback()
         flash(f'❌ Error: {str(e)}', 'danger')
@@ -14804,7 +14837,7 @@ def eliminar_compra(id):
         
         for det in detalles:
             cursor.execute("""
-                UPDATE inventario
+                UPDATE inventario_mp
                 SET entradas = GREATEST(0, entradas - %s),
                     disponible_base = GREATEST(0, disponible_base - %s)
                 WHERE mercancia_id = %s AND empresa_id = %s
@@ -14815,9 +14848,10 @@ def eliminar_compra(id):
         cursor.execute("""
             DELETE FROM inventario_movimientos_mp
             WHERE tipo_movimiento = 'entrada' 
-              AND referencia = %s
+              AND referencia_tipo = 'compra'
+              AND referencia_id = %s
               AND empresa_id = %s
-        """, (f"Compra {id}", eid))
+        """, (id, eid))
 
         # Eliminar detalles
         cursor.execute("""
