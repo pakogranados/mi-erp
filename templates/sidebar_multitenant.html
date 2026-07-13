@@ -613,8 +613,27 @@
 
         <div class="user-info">
             <div class="small text-white-50">Sesión activa</div>
-            <div class="fw-bold">{{ g.usuario_nombre }}</div>
-            <div class="small">{{ g.contratante_nombre }}</div>
+            <div class="fw-bold">{{ g.usuario_nombre if g.usuario_nombre else 'Usuario' }}</div>
+            <div class="small mb-2">{{ g.empresa_nombre if g.empresa_nombre else '' }}</div>
+            <hr style="border-color:rgba(255,255,255,0.2); margin:6px 0;">
+            <a href="#" class="d-block text-white-50 small py-1">
+              <i class="fas fa-lock me-1"></i> Cambiar Contraseña
+            </a>
+            <a href="{{ url_for('configurar_pin') }}" class="d-block text-white-50 small py-1">
+              <i class="fas fa-key me-1"></i> Configurar PIN
+            </a>
+            <a href="#" class="d-block text-white-50 small py-1">
+              <i class="fas fa-headset me-1"></i> Centro de Ayuda
+            </a>
+            <a href="#" class="d-block text-white-50 small py-1">
+              <i class="fas fa-file-invoice me-1"></i> Estado de Cuenta
+            </a>
+            <a href="#" class="d-block text-white-50 small py-1">
+              <i class="fas fa-shield-alt me-1"></i> Aviso de Privacidad
+            </a>
+            <a href="#" class="d-block text-white-50 small py-1">
+              <i class="fas fa-file-contract me-1"></i> Términos y Condiciones
+            </a>
         </div>
     </div>
 

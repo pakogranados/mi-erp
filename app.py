@@ -1579,6 +1579,18 @@ def editar_perfil_empresa(empresa_id):
 def registro():
     """Registrar nuevo usuario - MULTI-TENANT con onboarding de 4 pasos"""
     
+    # Verificar PIN configurado
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT pin_retiro FROM usuarios WHERE id = %s", (g.usuario_id,))
+    usr = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not usr or not usr['pin_retiro']:
+        flash('⚠️ Debes configurar tu PIN de retiro antes de continuar.', 'warning')
+        return redirect(url_for('configurar_pin'))
+
     if session.get('usuario_id'):
         return redirect(url_for('dashboard'))
     
@@ -2997,6 +3009,45 @@ def aceptar_invitacion(token):
     cursor.close()
     db.close()
     return render_template('registro/crear_contrasena.html', usuario=usuario)
+
+@app.route('/usuario/pin', methods=['GET', 'POST'])
+@require_login
+def configurar_pin():
+    uid = g.usuario_id
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    try:
+        if request.method == 'POST':
+            pin = request.form.get('pin', '').strip()
+            if not pin.isdigit() or len(pin) != 4:
+                flash('⚠️ El PIN debe ser exactamente 4 dígitos numéricos.', 'warning')
+                return redirect(url_for('configurar_pin'))
+            cur.execute("UPDATE usuarios SET pin_retiro = %s WHERE id = %s", (pin, uid))
+            conn.commit()
+            flash('✅ PIN configurado correctamente.', 'success')
+            return redirect(url_for('configurar_pin'))
+        cur.execute("SELECT nombre, pin_retiro FROM usuarios WHERE id = %s", (uid,))
+        usuario = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+    return render_template('usuario/configurar_pin.html', usuario=usuario)
+
+@app.route('/verificar_pin', methods=['POST'])
+@require_login
+def verificar_pin():
+    data = request.get_json()
+    pin = data.get('pin', '')
+    conn = conexion_db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT pin_retiro FROM usuarios WHERE id = %s", (g.usuario_id,))
+    usr = cur.fetchone()
+    cur.close()
+    conn.close()
+    if usr and usr['pin_retiro'] == pin:
+        return jsonify({'ok': True})
+    return jsonify({'ok': False})
+
 
 # =============================================
 # GESTIÓN DE USUARIOS (UNIFICADA)
@@ -5783,6 +5834,8 @@ def eliminar_merma(merma_id):
         flash(f'Error: {str(e)}', 'danger')
         return redirect(url_for('cerrar_turno'))
 
+
+
 # ==================== HISTORIAL DE TICKETS Y CORTE ====================
 
 @app.route('/historial_tickets')
@@ -5807,6 +5860,7 @@ def historial_tickets():
                 v.turno_id,
                 v.usuario_id,
                 v.fecha,
+                v.cancelada,
                 u.nombre as cajero
             FROM caja_ventas v
             LEFT JOIN usuarios u ON v.usuario_id = u.id
@@ -5842,7 +5896,7 @@ def historial_tickets():
         turnos = cur.fetchall()
 
         cantidad_tickets = len(ventas)
-        total_ventas = sum(v['total'] or 0 for v in ventas)
+        total_ventas = sum(v['total'] or 0 for v in ventas if not v['cancelada'])
 
     finally:
         cur.close()
@@ -5972,6 +6026,24 @@ def detalle_corte(turno_id):
         total_ventas=total_ventas
     )
 
+@app.route('/cancelar_ticket/<int:ticket_id>', methods=['POST'])
+@require_login
+def cancelar_ticket(ticket_id):
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE caja_ventas SET cancelada = 1 
+            WHERE id = %s AND empresa_id = %s
+        """, (ticket_id, eid))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({'ok': True})
+
+
 
 # ==================== RETIRO PARCIAL DE EFECTIVO ====================
 
@@ -6033,6 +6105,23 @@ def registrar_retiro():
         db.close()
 
     return redirect(url_for('caja'))
+
+@app.route('/eliminar_retiro/<int:retiro_id>', methods=['POST'])
+@require_login
+def eliminar_retiro(retiro_id):
+    eid = g.empresa_id
+    conn = conexion_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            DELETE FROM retiros_efectivo 
+            WHERE id = %s AND empresa_id = %s
+        """, (retiro_id, eid))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/historial_retiros')
 @require_login
@@ -6307,10 +6396,12 @@ def cerrar_turno():
 
             # Retiros del turno
             cursor.execute("""
-                SELECT COALESCE(SUM(monto), 0) as total FROM retiros_efectivo
+                SELECT id, monto, motivo, fecha FROM retiros_efectivo
                 WHERE turno_id = %s AND empresa_id = %s
+                ORDER BY fecha DESC
             """, (turno['id'], eid))
-            total_retiros = float(cursor.fetchone()['total'])
+            retiros_detalle = cursor.fetchall()
+            total_retiros = float(sum(r['monto'] for r in retiros_detalle))
 
             # Compras del dia
             cursor.execute("""
@@ -6320,92 +6411,47 @@ def cerrar_turno():
             """, (eid, turno['fecha_apertura']))
             total_compras_dia = float(cursor.fetchone()['total'])
 
-            ya_validado = session.get(f'turno_{turno["id"]}_validado', False)
+            # Compras del dia
+            cursor.execute("""
+                SELECT COALESCE(SUM(total), 0) as total FROM compras
+                WHERE empresa_id = %s AND fecha = DATE(%s)
+                AND forma_pago != 'credito'
+            """, (eid, turno['fecha_apertura']))
+            total_compras_dia = float(cursor.fetchone()['total'])
 
+            # Arqueo guardado
+            cursor.execute("""
+                SELECT * FROM turno_arqueo 
+                WHERE turno_id = %s AND empresa_id = %s
+                LIMIT 1
+            """, (turno['id'], eid))
+            arqueo_guardado = cursor.fetchone()
+            print(f"ARQUEO GUARDADO: {arqueo_guardado}")
+
+            
             cursor.close()
             db.close()
 
-            diferencias_pendientes = session.get(f'turno_{turno["id"]}_diferencias', [])
-
             return render_template(
-                'cobranza/cerrar_turno.html',
+                'cobranza/resumen_cierre.html',
                 turno=turno,
-                productos=productos,
-                pedir_inventario=pedir_inventario,
-                frecuencia=frecuencia,
-                retiros=retiros,
-                gastos=gastos,
-                total_gastos=total_gastos,
-                mermas=mermas,
-                tickets=tickets,
-                ventas_por_producto=ventas_por_producto,
-                total_ventas_turno=total_ventas_turno,
+                ventas_por_producto=ventas_resumen,
+                total_ventas=total_ventas_final,
                 total_retiros=total_retiros,
+                total_gastos=total_gastos,
                 total_compras_dia=total_compras_dia,
-                diferencias_pendientes=diferencias_pendientes,
-                ya_validado=ya_validado
+                conteo_final=conteo_final,
+                fondo=fondo,
+                corte_sin_fondo=conteo_final,
+                efectivo_esperado=efectivo_esperado,
+                diferencia=diferencia_efectivo
             )
         
         # POST - Procesar
-        ya_validado = session.get(f'turno_{turno["id"]}_validado', False)
+        
         pedir_inventario = request.form.get('pedir_inventario', 'false') == 'true'
         
-        if not ya_validado:
-            diferencias_inventario = []
-            producto_ids = request.form.getlist('producto_id[]')
-            producto_nombres = request.form.getlist('producto_nombre[]')
-            producto_precios = request.form.getlist('producto_precio[]')
-            cantidades_finales = request.form.getlist('cantidad_final[]')
-            
-            for pid, pnombre, pprecio, cant_final in zip(producto_ids, producto_nombres, producto_precios, cantidades_finales):
-                if not cant_final or not cant_final.strip():
-                    continue
-                
-                pid = int(pid)
-                cant_final = float(cant_final)
-                pprecio = float(pprecio)
-                
-                cursor.execute("""
-                    SELECT cantidad_inicial FROM turno_inventario
-                    WHERE turno_id = %s AND producto_id = %s AND empresa_id = %s
-                """, (turno['id'], pid, eid))
-                inicial = cursor.fetchone()
-                cant_inicial = float(inicial['cantidad_inicial']) if inicial else 0
-                
-                cursor.execute("""
-                    SELECT COALESCE(SUM(cantidad), 0) as total_consumos
-                    FROM consumos_propios
-                    WHERE turno_id = %s AND producto_id = %s AND empresa_id = %s
-                """, (turno['id'], pid, eid))
-                consumos = cursor.fetchone()
-                cant_consumos = float(consumos['total_consumos'])
-                
-                cursor.execute("""
-                    SELECT COALESCE(SUM(cantidad), 0) as total_mermas
-                    FROM turno_mermas
-                    WHERE turno_id = %s AND producto_id = %s AND empresa_id = %s
-                """, (turno['id'], pid, eid))
-                mermas_prod = cursor.fetchone()
-                cant_mermas = float(mermas_prod['total_mermas'])
-                
-                ventas_teoricas = cant_inicial - cant_consumos - cant_mermas - cant_final
-                valor_diferencia = abs(ventas_teoricas) * pprecio
-                
-                if valor_diferencia > 70:
-                    diferencias_inventario.append({
-                        'producto': pnombre,
-                        'diferencia': ventas_teoricas,
-                        'valor': valor_diferencia
-                    })
-            
-            if diferencias_inventario:
-                session[f'turno_{turno["id"]}_validado'] = True
-                session[f'turno_{turno["id"]}_diferencias'] = diferencias_inventario
-                cursor.close()
-                db.close()
-                return redirect(url_for('cerrar_turno'))
-            else:
-                session[f'turno_{turno["id"]}_validado'] = True
+    
         
         # CERRAR DEFINITIVAMENTE
         producto_ids = request.form.getlist('producto_id[]')
@@ -6457,6 +6503,15 @@ def cerrar_turno():
             mermas = cursor.fetchone()
             cant_mermas = float(mermas['total'])
             
+            cursor.execute("""
+                    SELECT COALESCE(SUM(ipt.cantidad), 0) as total_entradas
+                    FROM inventario_movimientos_pt ipt
+                    WHERE ipt.empresa_id = %s AND ipt.pt_id = %s
+                    AND ipt.tipo_movimiento = 'entrada'
+                    AND DATE(ipt.fecha) = DATE(%s)
+                """, (eid, pid, turno['fecha_apertura']))
+            cant_entradas = float(cursor.fetchone()['total_entradas'])
+
             unidades_vendidas = cant_inicial - cant_consumos - cant_mermas - cant_final
             importe_venta = unidades_vendidas * pprecio
             total_ventas_calculado += importe_venta
@@ -6474,13 +6529,13 @@ def cerrar_turno():
                 })
         
         # Arqueo CON EMPRESA
-        billetes_20 = int(request.form.get('billetes_20', 0))
-        billetes_50 = int(request.form.get('billetes_50', 0))
-        billetes_100 = int(request.form.get('billetes_100', 0))
-        billetes_200 = int(request.form.get('billetes_200', 0))
-        billetes_500 = int(request.form.get('billetes_500', 0))
-        dolares = float(request.form.get('dolares', 0))
-        monedas = float(request.form.get('monedas', 0))
+        billetes_20 = int(request.form.get('billetes_20', 0) or 0)
+        billetes_50 = int(request.form.get('billetes_50', 0) or 0)
+        billetes_100 = int(request.form.get('billetes_100', 0) or 0)
+        billetes_200 = int(request.form.get('billetes_200', 0) or 0)
+        billetes_500 = int(request.form.get('billetes_500', 0) or 0)
+        dolares = float(request.form.get('dolares', 0) or 0)
+        monedas = float(request.form.get('monedas', 0) or 0)
         retiro_corte = float(request.form.get('retiro_corte', 0) or 0)
         
         tipo_cambio = float(turno['tipo_cambio'])
@@ -6494,6 +6549,15 @@ def cerrar_turno():
             (empresa_id, turno_id, billetes_20, billetes_50, billetes_100, billetes_200, 
              billetes_500, dolares, monedas, total_efectivo)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                billetes_20 = VALUES(billetes_20),
+                billetes_50 = VALUES(billetes_50),
+                billetes_100 = VALUES(billetes_100),
+                billetes_200 = VALUES(billetes_200),
+                billetes_500 = VALUES(billetes_500),
+                dolares = VALUES(dolares),
+                monedas = VALUES(monedas),
+                total_efectivo = VALUES(total_efectivo)
         """, (eid, turno['id'], billetes_20, billetes_50, billetes_100, billetes_200,
               billetes_500, dolares, monedas, conteo_final))
         
@@ -6556,9 +6620,8 @@ def cerrar_turno():
         total_compras_dia = float(total_compras_dia)
         total_ventas_final = float(total_ventas_final)
         fondo = float(turno['fondo_inicial'])
-        corte_sin_fondo = conteo_final - fondo
         efectivo_esperado = total_ventas_final - total_retiros - total_gastos - total_compras_dia
-        diferencia_efectivo = corte_sin_fondo - efectivo_esperado
+        diferencia_efectivo = conteo_final - efectivo_esperado
 
         notas_cierre = request.form.get('notas_cierre', '')
 
@@ -6591,7 +6654,7 @@ def cerrar_turno():
             total_compras_dia=total_compras_dia,
             conteo_final=conteo_final,
             fondo=fondo,
-            corte_sin_fondo=retiro_corte,
+            corte_sin_fondo = conteo_final,
             efectivo_esperado=efectivo_esperado,
             diferencia=diferencia_efectivo
         )

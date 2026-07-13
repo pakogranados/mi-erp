@@ -304,19 +304,15 @@
       </div>
 
       <!-- Botón de Retiro -->
-      <div class="d-grid mt-1">
-        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#modalRetiro">
-          💵 Retiro de Efectivo
+      <div class="d-flex gap-1 mt-2">
+        <button type="button" class="btn btn-warning flex-fill py-3" data-bs-toggle="modal" data-bs-target="#modalRetiro">
+          💵 Retiro de efectivo
         </button>
-      </div>
-      <div class="d-grid mt-1">
-        <a href="{{ url_for('consumos_propios') }}" class="btn btn-outline-warning btn-sm">
-          🍦 Consumos Propios
+        <a href="{{ url_for('consumos_propios') }}" class="btn btn-outline-warning flex-fill py-3">
+          🍦 Consumos internos
         </a>
-      </div>
-      <div class="d-grid mt-1">
-        <a href="{{ url_for('cerrar_turno') }}" class="btn btn-danger btn-sm">
-          🔒 Cerrar Turno
+        <a href="{{ url_for('cerrar_turno') }}" class="btn btn-danger flex-fill py-3">
+          🔒 Inicio Cierre de corte
         </a>
       </div>
 
@@ -542,7 +538,7 @@
   </div>
 </div>
 
-<!-- MODAL: Retiro de Efectivo -->
+      <!-- MODAL: Retiro de Efectivo -->
 <div class="modal fade" id="modalRetiro" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
@@ -551,92 +547,104 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body py-2">
-        <form method="post" action="{{ url_for('registrar_retiro') }}" id="frmRetiro">
-          <!-- Monedas -->
-          <div class="row g-2 mb-2">
-            <div class="col-md-5">
-              <label class="fw-bold small mb-0">🪙 Monedas (MXN)</label>
-              <div class="input-group input-group-sm">
-                <span class="input-group-text">$</span>
-                <input type="number" class="form-control" id="monedasInput" step="0.01" min="0" value="0">
-              </div>
+        <!-- VERIFICACIÓN DE PIN -->
+        <div id="pinRetiroSection">
+          <div class="text-center py-3">
+            <i class="fas fa-lock fa-3x text-warning mb-3"></i>
+            <p class="fw-bold">Ingresa tu PIN de administrador</p>
+            <input type="password" id="pinRetiroInput" 
+                   class="form-control form-control-lg text-center mx-auto mb-3"
+                   maxlength="4" inputmode="numeric" placeholder="••••"
+                   style="max-width:150px; letter-spacing:8px; font-size:1.5rem;">
+            <div id="pinRetiroError" class="text-danger mb-2" style="display:none;">
+              ❌ PIN incorrecto
             </div>
-          </div>
-          <!-- Billetes MXN en grid compacto -->
-          <label class="fw-bold small mb-1">💵 Billetes MXN</label>
-          <div class="row g-1 mb-2">
-            <div class="col">
-              <label class="form-label small mb-0">$20</label>
-              <input type="number" class="form-control form-control-sm" id="bill20" min="0" value="0">
-              <div class="text-end small text-muted" id="equiv20">$0</div>
-            </div>
-            <div class="col">
-              <label class="form-label small mb-0">$50</label>
-              <input type="number" class="form-control form-control-sm" id="bill50" min="0" value="0">
-              <div class="text-end small text-muted" id="equiv50">$0</div>
-            </div>
-            <div class="col">
-              <label class="form-label small mb-0">$100</label>
-              <input type="number" class="form-control form-control-sm" id="bill100" min="0" value="0">
-              <div class="text-end small text-muted" id="equiv100">$0</div>
-            </div>
-            <div class="col">
-              <label class="form-label small mb-0">$200</label>
-              <input type="number" class="form-control form-control-sm" id="bill200" min="0" value="0">
-              <div class="text-end small text-muted" id="equiv200">$0</div>
-            </div>
-            <div class="col">
-              <label class="form-label small mb-0">$500</label>
-              <input type="number" class="form-control form-control-sm" id="bill500" min="0" value="0">
-              <div class="text-end small text-muted" id="equiv500">$0</div>
-            </div>
-          </div>
-
-          <!-- Dólares y Total en la misma fila -->
-          <div class="row g-2 mb-2">
-            <div class="col-md-5">
-              <label class="fw-bold small mb-0">💵 Dólares (USD)</label>
-              <div class="input-group input-group-sm">
-                <span class="input-group-text">$</span>
-                <input type="number" class="form-control" id="dolaresInput" step="0.01" min="0" value="0">
-                <span class="input-group-text">USD</span>
-              </div>
-              <input type="hidden" id="dolaresEnPesos" name="dolares_en_pesos">
-              <div class="text-end small text-muted">Equiv: <span id="totalDolaresEquiv">$0.00</span></div>
-            </div>
-            <div class="col-md-7 d-flex align-items-center">
-              <div class="w-100">
-                <div class="d-flex justify-content-between border-top pt-1">
-                  <span class="small">Total Pesos:</span>
-                  <strong id="totalPesos">$0.00</strong>
-                </div>
-                <div class="d-flex justify-content-between">
-                  <span class="small">Total Dólares (equiv):</span>
-                  <strong id="totalDolaresEquiv2">$0.00</strong>
-                </div>
-                <div class="d-flex justify-content-between border-top pt-1">
-                  <h6 class="mb-0">TOTAL:</h6>
-                  <h6 class="text-danger mb-0" id="totalGeneral">$0.00</h6>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <input type="hidden" name="monto" id="montoTotal">
-
-          <!-- Concepto -->
-          <div class="mb-2">
-            <label class="form-label small fw-bold mb-0">Concepto:</label>
-            <textarea class="form-control form-control-sm" name="concepto" rows="1" 
-                      placeholder="Ej: Cambio de billete" required></textarea>
-          </div>
-
-          <div class="d-grid">
-            <button type="submit" class="btn btn-warning btn-sm" id="btnConfirmarRetiro">
-              💵 Confirmar Retiro
+            <button type="button" class="btn btn-warning px-5" onclick="verificarPinRetiro()">
+              🔓 Verificar
             </button>
           </div>
-        </form>
+        </div>
+        <!-- FORMULARIO DE RETIRO -->
+        <div id="formRetiroSection" style="display:none;">
+          <form method="post" action="{{ url_for('registrar_retiro') }}" id="frmRetiro">
+            <div class="row g-2 mb-2">
+              <div class="col-md-5">
+                <label class="fw-bold small mb-0">🪙 Monedas (MXN)</label>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">$</span>
+                  <input type="number" class="form-control" id="monedasInput" step="0.01" min="0" value="0">
+                </div>
+              </div>
+            </div>
+            <label class="fw-bold small mb-1">💵 Billetes MXN</label>
+            <div class="row g-1 mb-2">
+              <div class="col">
+                <label class="form-label small mb-0">$20</label>
+                <input type="number" class="form-control form-control-sm" id="bill20" min="0" value="0">
+                <div class="text-end small text-muted" id="equiv20">$0</div>
+              </div>
+              <div class="col">
+                <label class="form-label small mb-0">$50</label>
+                <input type="number" class="form-control form-control-sm" id="bill50" min="0" value="0">
+                <div class="text-end small text-muted" id="equiv50">$0</div>
+              </div>
+              <div class="col">
+                <label class="form-label small mb-0">$100</label>
+                <input type="number" class="form-control form-control-sm" id="bill100" min="0" value="0">
+                <div class="text-end small text-muted" id="equiv100">$0</div>
+              </div>
+              <div class="col">
+                <label class="form-label small mb-0">$200</label>
+                <input type="number" class="form-control form-control-sm" id="bill200" min="0" value="0">
+                <div class="text-end small text-muted" id="equiv200">$0</div>
+              </div>
+              <div class="col">
+                <label class="form-label small mb-0">$500</label>
+                <input type="number" class="form-control form-control-sm" id="bill500" min="0" value="0">
+                <div class="text-end small text-muted" id="equiv500">$0</div>
+              </div>
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col-md-5">
+                <label class="fw-bold small mb-0">💵 Dólares (USD)</label>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">$</span>
+                  <input type="number" class="form-control" id="dolaresInput" step="0.01" min="0" value="0">
+                  <span class="input-group-text">USD</span>
+                </div>
+                <input type="hidden" id="dolaresEnPesos" name="dolares_en_pesos">
+                <div class="text-end small text-muted">Equiv: <span id="totalDolaresEquiv">$0.00</span></div>
+              </div>
+              <div class="col-md-7 d-flex align-items-center">
+                <div class="w-100">
+                  <div class="d-flex justify-content-between border-top pt-1">
+                    <span class="small">Total Pesos:</span>
+                    <strong id="totalPesos">$0.00</strong>
+                  </div>
+                  <div class="d-flex justify-content-between">
+                    <span class="small">Total Dólares (equiv):</span>
+                    <strong id="totalDolaresEquiv2">$0.00</strong>
+                  </div>
+                  <div class="d-flex justify-content-between border-top pt-1">
+                    <h6 class="mb-0">TOTAL:</h6>
+                    <h6 class="text-danger mb-0" id="totalGeneral">$0.00</h6>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <input type="hidden" name="monto" id="montoTotal">
+            <div class="mb-2">
+              <label class="form-label small fw-bold mb-0">Concepto:</label>
+              <textarea class="form-control form-control-sm" name="concepto" rows="1" 
+                        placeholder="Ej: Cambio de billete" required></textarea>
+            </div>
+            <div class="d-grid">
+              <button type="submit" class="btn btn-warning btn-sm" id="btnConfirmarRetiro">
+                💵 Confirmar Retiro
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   </div>
@@ -730,6 +738,42 @@
 </div>
 
 <script>
+
+  // Resetear PIN al abrir modal de retiro
+  document.getElementById('modalRetiro').addEventListener('show.bs.modal', function() {
+    document.getElementById('pinRetiroSection').style.display = 'block';
+    document.getElementById('formRetiroSection').style.display = 'none';
+    document.getElementById('pinRetiroInput').value = '';
+    document.getElementById('pinRetiroError').style.display = 'none';
+  });
+
+  function verificarPinRetiro() {
+    const pin = document.getElementById('pinRetiroInput').value;
+    fetch('/verificar_pin', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({pin: pin})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        document.getElementById('pinRetiroSection').style.display = 'none';
+        document.getElementById('formRetiroSection').style.display = 'block';
+      } else {
+        document.getElementById('pinRetiroError').style.display = 'block';
+        document.getElementById('pinRetiroInput').value = '';
+        document.getElementById('pinRetiroInput').focus();
+      }
+    });
+  }
+
+  // Enter para verificar PIN
+  document.getElementById('pinRetiroInput')?.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') verificarPinRetiro();
+  });
+
+
+
   const tipoCambio = parseFloat('{{ tipo_cambio }}') || 20;
   const totalVenta = parseFloat('{{ "%.2f"|format(totals.total) }}') || 0;
   const cobroPesos = document.getElementById('cobroPesos');

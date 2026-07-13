@@ -68,6 +68,7 @@
               <th>Fecha/Hora</th>
               <th>Cajero</th>
               <th>Turno</th>
+              <th class="text-center">Estado</th>
               <th class="text-end">Total</th>
               <th class="text-center">Acciones</th>
             </tr>
@@ -85,16 +86,31 @@
                   <span class="badge bg-secondary">Sin turno</span>
                 {% endif %}
               </td>
+              <td class="text-center">
+                {% if v.cancelada %}
+                  <span class="badge bg-danger">Cancelado</span>
+                {% else %}
+                  <span class="badge bg-success">Activo</span>
+                {% endif %}
+              </td>              
               <td class="text-end">${{ "%.2f"|format(v.total) }}</td>
               <td class="text-center">
                 <a href="{{ url_for('ver_ticket', ticket_id=v.id) }}" class="btn btn-sm btn-outline-primary">
                   Ver Detalle
                 </a>
+                {% if not v.cancelada %}
+                <button type="button" class="btn btn-sm btn-outline-danger"
+                        onclick="solicitarPinEliminar({{ v.id }})">
+                  🗑️ Eliminar
+                </button>
+                {% else %}
+                <span class="badge bg-danger">Cancelado</span>
+                {% endif %}
               </td>
             </tr>
             {% else %}
             <tr>
-              <td colspan="6" class="text-center text-muted">No hay tickets registrados</td>
+              <td colspan="7" class="text-center text-muted">No hay tickets registrados</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -104,5 +120,68 @@
   </div>
 
 </div>
+
+
+<!-- Modal PIN Eliminar Ticket -->
+<div class="modal fade" id="modalPinTicket" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">🔐 PIN Requerido</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center py-4">
+        <p class="text-danger fw-bold">⚠️ Esta acción es irreversible</p>
+        <p class="text-muted mb-3">Ingresa tu PIN para eliminar el ticket</p>
+        <input type="password" id="pinTicketInput"
+               class="form-control form-control-lg text-center mx-auto mb-3"
+               maxlength="4" inputmode="numeric" placeholder="••••"
+               style="max-width:150px; letter-spacing:8px;">
+        <div id="pinTicketError" class="text-danger mb-2" style="display:none;">
+          ❌ PIN incorrecto
+        </div>
+        <button type="button" class="btn btn-danger px-5" onclick="confirmarEliminarTicket()">
+          🗑️ Eliminar Ticket
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+<script>
+  let ticketIdAEliminar = null;
+
+  function solicitarPinEliminar(id) {
+    ticketIdAEliminar = id;
+    document.getElementById('pinTicketInput').value = '';
+    document.getElementById('pinTicketError').style.display = 'none';
+    new bootstrap.Modal(document.getElementById('modalPinTicket')).show();
+  }
+
+  function confirmarEliminarTicket() {
+    const pin = document.getElementById('pinTicketInput').value;
+    fetch('/verificar_pin', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({pin: pin})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        fetch('/cancelar_ticket/' + ticketIdAEliminar, {method: 'POST'})
+        .then(() => location.reload());
+      } else {
+        document.getElementById('pinTicketError').style.display = 'block';
+        document.getElementById('pinTicketInput').value = '';
+      }
+    });
+  }
+
+  document.getElementById('pinTicketInput')?.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') confirmarEliminarTicket();
+  });
+</script>
 
 {% endblock %}
